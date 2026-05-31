@@ -226,6 +226,44 @@ class AndroidVideoPlayer extends VideoPlayerPlatform {
   }
 
   @override
+  Future<bool> isPictureInPictureSupported() {
+    return _api.isPictureInPictureSupported();
+  }
+
+  @override
+  Future<void> startPictureInPicture(int playerId) {
+    return _playerWith(id: playerId).startPictureInPicture();
+  }
+
+  @override
+  Future<void> stopPictureInPicture(int playerId) {
+    return _playerWith(id: playerId).stopPictureInPicture();
+  }
+
+  @override
+  Future<void> setAutomaticallyStartPictureInPicture(
+    int playerId, {
+    required bool enableStartPictureInPictureAutomaticallyFromInline,
+  }) {
+    return _playerWith(id: playerId).setAutomaticallyStartPictureInPicture(
+      enableStartPictureInPictureAutomaticallyFromInline,
+    );
+  }
+
+  @override
+  Future<void> setPictureInPictureOverlayRect({
+    required int playerId,
+    required Rect rect,
+  }) {
+    return _playerWith(id: playerId).setPictureInPictureSourceRectHint(
+      rect.left,
+      rect.top,
+      rect.width,
+      rect.height,
+    );
+  }
+
+  @override
   Future<List<VideoAudioTrack>> getAudioTracks(int playerId) async {
     final NativeAudioTrackData nativeData = await _playerWith(
       id: playerId,
@@ -351,6 +389,27 @@ class _PlayerInstance {
 
   Future<NativeAudioTrackData> getAudioTracks() {
     return _api.getAudioTracks();
+  }
+
+  Future<void> startPictureInPicture() {
+    return _api.startPictureInPicture();
+  }
+
+  Future<void> stopPictureInPicture() {
+    return _api.stopPictureInPicture();
+  }
+
+  Future<void> setAutomaticallyStartPictureInPicture(bool enabled) {
+    return _api.setAutomaticallyStartPictureInPicture(enabled);
+  }
+
+  Future<void> setPictureInPictureSourceRectHint(
+    double left,
+    double top,
+    double width,
+    double height,
+  ) {
+    return _api.setPictureInPictureSourceRectHint(left, top, width, height);
   }
 
   Future<void> selectAudioTrack(String trackId) async {
@@ -481,12 +540,18 @@ class _PlayerInstance {
           _setBuffering(false);
         }
       case AudioTrackChangedEvent _:
-        // Complete the audio track selection completer if it exists
-        // This signals that the track selection has completed
         if (_audioTrackSelectionCompleter != null &&
             !_audioTrackSelectionCompleter!.isCompleted) {
           _audioTrackSelectionCompleter!.complete();
         }
+      case PictureInPictureStartedEvent _:
+        _eventStreamController.add(
+          VideoEvent(eventType: VideoEventType.startingPictureInPicture),
+        );
+      case PictureInPictureStoppedEvent _:
+        _eventStreamController.add(
+          VideoEvent(eventType: VideoEventType.stoppedPictureInPicture),
+        );
     }
   }
 

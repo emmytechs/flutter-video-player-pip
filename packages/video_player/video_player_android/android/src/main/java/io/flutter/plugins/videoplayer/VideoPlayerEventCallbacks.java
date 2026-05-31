@@ -68,4 +68,14 @@ final class VideoPlayerEventCallbacks implements VideoPlayerCallbacks {
   public void onAudioTrackChanged(@Nullable String selectedTrackId) {
     eventSink.success(new AudioTrackChangedEvent(selectedTrackId));
   }
+
+  @Override
+  public void onPictureInPictureStarted() {
+    eventSink.success(new PictureInPictureStartedEvent());
+  }
+
+  @Override
+  public void onPictureInPictureStopped() {
+    eventSink.success(new PictureInPictureStoppedEvent());
+  }
 }

@@ -22,6 +22,12 @@ enum PlatformPlaybackState { idle, buffering, ready, ended, unknown }
 
 sealed class PlatformVideoEvent {}
 
+/// Sent when picture-in-picture mode starts.
+class PictureInPictureStartedEvent extends PlatformVideoEvent {}
+
+/// Sent when picture-in-picture mode stops.
+class PictureInPictureStoppedEvent extends PlatformVideoEvent {}
+
 /// Sent when the video is initialized and ready to play.
 class InitializationEvent extends PlatformVideoEvent {
   /// The video duration in milliseconds.
@@ -159,6 +165,9 @@ abstract class AndroidVideoPlayerApi {
   void dispose(int playerId);
   void setMixWithOthers(bool mixWithOthers);
   String getLookupKeyForAsset(String asset, String? packageName);
+
+  /// Returns true if picture-in-picture is supported on this device.
+  bool isPictureInPictureSupported();
 }
 
 @HostApi()
@@ -192,6 +201,19 @@ abstract class VideoPlayerInstanceApi {
 
   /// Selects which audio track is chosen for playback from its [groupIndex] and [trackIndex]
   void selectAudioTrack(int groupIndex, int trackIndex);
+
+  /// Starts picture-in-picture mode for this player.
+  void startPictureInPicture();
+
+  /// Stops picture-in-picture mode (no-op on Android; user dismisses via system controls).
+  void stopPictureInPicture();
+
+  /// Sets whether PiP should start automatically when the user leaves the app.
+  void setAutomaticallyStartPictureInPicture(bool enabled);
+
+  /// Provides a source rect hint for the PiP animation origin (in screen coordinates).
+  void setPictureInPictureSourceRectHint(
+      double left, double top, double width, double height);
 }
 
 @EventChannelApi()

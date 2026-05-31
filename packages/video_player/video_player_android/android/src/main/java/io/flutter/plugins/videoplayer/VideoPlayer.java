@@ -7,8 +7,12 @@ package io.flutter.plugins.videoplayer;
 import static androidx.media3.common.Player.REPEAT_MODE_ALL;
 import static androidx.media3.common.Player.REPEAT_MODE_OFF;
 
+import android.graphics.Rect;
+import android.os.Build;
+import android.util.Rational;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
+import androidx.annotation.RequiresApi;
 import androidx.media3.common.AudioAttributes;
 import androidx.media3.common.C;
 import androidx.media3.common.Format;
@@ -52,6 +56,24 @@ public abstract class VideoPlayer implements VideoPlayerInstanceApi {
   public interface DisposeHandler {
     void onDispose();
   }
+
+  /**
+   * Delegate that handles platform-level PiP entry, backed by the Activity.
+   *
+   * <p>Implemented by {@link VideoPlayerPlugin} once it is attached to an Activity.
+   */
+  public interface PipDelegate {
+    /** Enters system picture-in-picture mode for the given player. */
+    @RequiresApi(api = Build.VERSION_CODES.O)
+    void enterPictureInPicture(
+        @NonNull VideoPlayer player,
+        @NonNull Rational aspectRatio,
+        @Nullable Rect sourceRectHint);
+  }
+
+  @Nullable private PipDelegate pipDelegate;
+  @Nullable private Rect pipSourceRectHint;
+  private boolean autoStartPipEnabled = false;
 
   // TODO: Migrate to stable API, see https://github.com/flutter/flutter/issues/147039.
   @UnstableApi
@@ -235,7 +257,68 @@ public abstract class VideoPlayer implements VideoPlayerInstanceApi {
         trackSelector.buildUponParameters().setOverrideForType(override).build());
   }
 
+  /** Sets the delegate used to enter system PiP mode. Called by {@link VideoPlayerPlugin}. */
+  public void setPipDelegate(@Nullable PipDelegate delegate) {
+    this.pipDelegate = delegate;
+  }
+
+  public boolean isAutoStartPipEnabled() {
+    return autoStartPipEnabled;
+  }
+
+  @Nullable
+  public Rect getPipSourceRectHint() {
+    return pipSourceRectHint;
+  }
+
+  @NonNull
+  public Rational getVideoAspectRatio() {
+    Format videoFormat = exoPlayer.getVideoFormat();
+    if (videoFormat != null && videoFormat.width > 0 && videoFormat.height > 0) {
+      int width = videoFormat.width;
+      int height = videoFormat.height;
+      int rotation = videoFormat.rotationDegrees;
+      if (rotation == 90 || rotation == 270) {
+        return new Rational(height, width);
+      }
+      return new Rational(width, height);
+    }
+    return new Rational(16, 9);
+  }
+
+  @Override
+  public void startPictureInPicture() {
+    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O || pipDelegate == null) {
+      return;
+    }
+    pipDelegate.enterPictureInPicture(this, getVideoAspectRatio(), pipSourceRectHint);
+  }
+
+  @Override
+  public void stopPictureInPicture() {
+    // On Android the user dismisses PiP via system controls; this is intentionally a no-op.
+  }
+
+  @Override
+  public void setAutomaticallyStartPictureInPicture(boolean enabled) {
+    autoStartPipEnabled = enabled;
+  }
+
+  @Override
+  public void setPictureInPictureSourceRectHint(
+      double left, double top, double width, double height) {
+    pipSourceRectHint =
+        new Rect((int) left, (int) top, (int) (left + width), (int) (top + height));
+  }
+
+  /** Returns the callbacks instance so the plugin can fire PiP events. */
+  @NonNull
+  public VideoPlayerCallbacks getVideoPlayerCallbacks() {
+    return videoPlayerEvents;
+  }
+
   public void dispose() {
+    pipDelegate = null;
     if (disposeHandler != null) {
       disposeHandler.onDispose();
     }

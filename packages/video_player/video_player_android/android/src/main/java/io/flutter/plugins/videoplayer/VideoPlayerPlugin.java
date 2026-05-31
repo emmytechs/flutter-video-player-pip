@@ -4,15 +4,23 @@
 
 package io.flutter.plugins.videoplayer;
 
+import android.app.Activity;
+import android.app.PictureInPictureParams;
 import android.content.Context;
+import android.graphics.Rect;
+import android.os.Build;
 import android.util.LongSparseArray;
+import android.util.Rational;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.annotation.OptIn;
+import androidx.annotation.RequiresApi;
 import androidx.media3.common.util.UnstableApi;
 import io.flutter.FlutterInjector;
 import io.flutter.Log;
 import io.flutter.embedding.engine.plugins.FlutterPlugin;
+import io.flutter.embedding.engine.plugins.activity.ActivityAware;
+import io.flutter.embedding.engine.plugins.activity.ActivityPluginBinding;
 import io.flutter.plugin.common.BinaryMessenger;
 import io.flutter.plugins.videoplayer.platformview.PlatformVideoViewFactory;
 import io.flutter.plugins.videoplayer.platformview.PlatformViewVideoPlayer;
@@ -20,12 +28,17 @@ import io.flutter.plugins.videoplayer.texture.TextureVideoPlayer;
 import io.flutter.view.TextureRegistry;
 
 /** Android platform implementation of the VideoPlayerPlugin. */
-public class VideoPlayerPlugin implements FlutterPlugin, AndroidVideoPlayerApi {
+public class VideoPlayerPlugin
+    implements FlutterPlugin, AndroidVideoPlayerApi, ActivityAware, VideoPlayer.PipDelegate {
   private static final String TAG = "VideoPlayerPlugin";
   private final LongSparseArray<VideoPlayer> videoPlayers = new LongSparseArray<>();
   private FlutterState flutterState;
   private final VideoPlayerOptions sharedOptions = new VideoPlayerOptions();
   private long nextPlayerIdentifier = 1;
+
+  @Nullable private Activity activity;
+  @Nullable private ActivityPluginBinding activityPluginBinding;
+  @Nullable private VideoPlayer activePipPlayer;
 
   /** Register this with the v2 embedding for the plugin to respond to lifecycle callbacks. */
   public VideoPlayerPlugin() {}
@@ -146,13 +159,16 @@ public class VideoPlayerPlugin implements FlutterPlugin, AndroidVideoPlayerApi {
   }
 
   private void registerPlayerInstance(VideoPlayer player, long id) {
-    // Set up the instance-specific API handler, and make sure it is removed when the player is
-    // disposed.
     BinaryMessenger messenger = flutterState.binaryMessenger;
     final String channelSuffix = Long.toString(id);
     VideoPlayerInstanceApi.Companion.setUp(messenger, player, channelSuffix);
     player.setDisposeHandler(
         () -> VideoPlayerInstanceApi.Companion.setUp(messenger, null, channelSuffix));
+
+    // Provide the Activity-backed PiP delegate if we are already attached.
+    if (activity != null) {
+      player.setPipDelegate(this);
+    }
 
     videoPlayers.put(id, player);
   }
@@ -190,6 +206,105 @@ public class VideoPlayerPlugin implements FlutterPlugin, AndroidVideoPlayerApi {
     return packageName == null
         ? flutterState.keyForAsset.get(asset)
         : flutterState.keyForAssetAndPackageName.get(asset, packageName);
+  }
+
+  @Override
+  public boolean isPictureInPictureSupported() {
+    return Build.VERSION.SDK_INT >= Build.VERSION_CODES.O;
+  }
+
+  // ── ActivityAware ──────────────────────────────────────────────────────────
+
+  @Override
+  public void onAttachedToActivity(@NonNull ActivityPluginBinding binding) {
+    activity = binding.getActivity();
+    activityPluginBinding = binding;
+    binding.addOnUserLeaveHintListener(this::onUserLeaveHint);
+    updatePipDelegateForAllPlayers(this);
+  }
+
+  @Override
+  public void onDetachedFromActivityForConfigChanges() {
+    detachActivity();
+  }
+
+  @Override
+  public void onReattachedToActivityForConfigChanges(@NonNull ActivityPluginBinding binding) {
+    onAttachedToActivity(binding);
+  }
+
+  @Override
+  public void onDetachedFromActivity() {
+    detachActivity();
+  }
+
+  private void detachActivity() {
+    if (activityPluginBinding != null) {
+      activityPluginBinding.removeOnUserLeaveHintListener(this::onUserLeaveHint);
+      activityPluginBinding = null;
+    }
+    updatePipDelegateForAllPlayers(null);
+    activity = null;
+  }
+
+  private void updatePipDelegateForAllPlayers(@Nullable VideoPlayer.PipDelegate delegate) {
+    for (int i = 0; i < videoPlayers.size(); i++) {
+      videoPlayers.valueAt(i).setPipDelegate(delegate);
+    }
+  }
+
+  // ── VideoPlayer.PipDelegate ────────────────────────────────────────────────
+
+  @Override
+  @RequiresApi(api = Build.VERSION_CODES.O)
+  public void enterPictureInPicture(
+      @NonNull VideoPlayer player,
+      @NonNull Rational aspectRatio,
+      @Nullable Rect sourceRectHint) {
+    if (activity == null) return;
+
+    activePipPlayer = player;
+
+    PictureInPictureParams.Builder builder =
+        new PictureInPictureParams.Builder().setAspectRatio(aspectRatio);
+
+    if (sourceRectHint != null) {
+      builder.setSourceRectHint(sourceRectHint);
+    }
+
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+      builder.setSeamlessResizeEnabled(true);
+    }
+
+    activity.enterPictureInPictureMode(builder.build());
+  }
+
+  /**
+   * Called by {@code MainActivity.onPictureInPictureModeChanged}.
+   *
+   * <p>Routes the system callback to the currently active PiP player so Flutter
+   * receives the corresponding {@code startingPictureInPicture} / {@code stoppedPictureInPicture}
+   * events.
+   */
+  public void onPictureInPictureModeChanged(boolean isInPictureInPictureMode) {
+    if (activePipPlayer == null) return;
+    if (isInPictureInPictureMode) {
+      activePipPlayer.getVideoPlayerCallbacks().onPictureInPictureStarted();
+    } else {
+      activePipPlayer.getVideoPlayerCallbacks().onPictureInPictureStopped();
+      activePipPlayer = null;
+    }
+  }
+
+  private void onUserLeaveHint() {
+    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return;
+    for (int i = 0; i < videoPlayers.size(); i++) {
+      VideoPlayer player = videoPlayers.valueAt(i);
+      if (player.isAutoStartPipEnabled()) {
+        enterPictureInPicture(player, player.getVideoAspectRatio(), player.getPipSourceRectHint());
+        break;
+      }
+    }
   }
 
   private interface KeyForAssetFn {
