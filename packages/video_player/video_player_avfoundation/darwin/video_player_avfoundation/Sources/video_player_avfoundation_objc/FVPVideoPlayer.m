@@ -239,6 +239,15 @@ static NSDictionary<NSString *, NSValue *> *FVPGetPlayerItemObservations(void) {
   _isPictureInPictureStarted = NO;
   [self.eventListener videoPlayerDidStopPictureInPicture];
 }
+
+/// Called when the user taps the "return to app" button on the PiP window.
+/// Calling completionHandler(YES) signals to iOS that the app UI is ready for
+/// the restore animation so it completes the transition cleanly.
+- (void)pictureInPictureController:(AVPictureInPictureController *)pictureInPictureController
+    restoreUserInterfaceForPictureInPictureStopWithCompletionHandler:
+        (void (^)(BOOL restored))completionHandler {
+  completionHandler(YES);
+}
 #endif
 
 - (void)disposeWithError:(FlutterError *_Nullable *_Nonnull)error {
