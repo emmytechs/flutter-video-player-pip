@@ -18,6 +18,7 @@ import androidx.media3.common.C;
 import androidx.media3.common.Format;
 import androidx.media3.common.MediaItem;
 import androidx.media3.common.PlaybackParameters;
+import androidx.media3.common.Player;
 import androidx.media3.common.TrackGroup;
 import androidx.media3.common.TrackSelectionOverride;
 import androidx.media3.common.Tracks;
@@ -79,6 +80,15 @@ public abstract class VideoPlayer implements VideoPlayerInstanceApi {
      * that occurred when relying solely on {@code onUserLeaveHint}.
      */
     void onAutoStartPipEnabledChanged(@NonNull VideoPlayer player, boolean enabled);
+
+    /**
+     * Called whenever the player's actual {@code isPlaying} state changes.
+     *
+     * <p>While this is the active PiP player and the Activity is in PiP mode,
+     * the plugin refreshes the PiP play/pause action so its icon always
+     * reflects the true playback state.
+     */
+    void onPlayingStateChanged(@NonNull VideoPlayer player, boolean isPlaying);
   }
 
   @Nullable private PipDelegate pipDelegate;
@@ -110,6 +120,19 @@ public abstract class VideoPlayer implements VideoPlayerInstanceApi {
     exoPlayer.setMediaItem(mediaItem);
     exoPlayer.prepare();
     exoPlayer.addListener(createExoPlayerEventListener(exoPlayer, surfaceProducer));
+    // Keep the system PiP play/pause action in sync with the actual playback
+    // state. Without this the action icon only refreshes on PiP entry or on a
+    // button tap, leaving it stale when the state changes for any other reason
+    // (buffering finishing, stream ending, pause from elsewhere, etc.).
+    exoPlayer.addListener(
+        new Player.Listener() {
+          @Override
+          public void onIsPlayingChanged(boolean isPlaying) {
+            if (pipDelegate != null) {
+              pipDelegate.onPlayingStateChanged(VideoPlayer.this, isPlaying);
+            }
+          }
+        });
     setAudioAttributes(exoPlayer, options.mixWithOthers);
   }
 

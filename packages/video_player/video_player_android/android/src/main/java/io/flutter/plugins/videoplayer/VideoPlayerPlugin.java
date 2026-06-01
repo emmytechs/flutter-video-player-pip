@@ -351,6 +351,29 @@ public class VideoPlayerPlugin
   }
 
   /**
+   * Refreshes the PiP play/pause action button whenever the player's actual
+   * playback state changes. Only acts while this is the active PiP player and
+   * the Activity is inside the PiP window, to avoid redundant param churn.
+   */
+  @Override
+  public void onPlayingStateChanged(@NonNull VideoPlayer player, boolean isPlaying) {
+    if (activity == null
+        || player != activePipPlayer
+        || Build.VERSION.SDK_INT < Build.VERSION_CODES.O
+        || !activity.isInPictureInPictureMode()) {
+      return;
+    }
+    try {
+      activity.setPictureInPictureParams(
+          new PictureInPictureParams.Builder()
+              .setActions(buildPipActions(isPlaying))
+              .build());
+    } catch (Exception ignored) {
+      // Defensive: some OEM ROMs throw on setPictureInPictureParams.
+    }
+  }
+
+  /**
    * Called by {@code MainActivity.onPictureInPictureModeChanged}.
    *
    * <p>Routes the system callback to the currently active PiP player so Flutter
@@ -436,6 +459,10 @@ public class VideoPlayerPlugin
     if (isPlaying) {
       Intent intent =
           new Intent(ACTION_PIP_PLAY_PAUSE).putExtra(EXTRA_PIP_ACTION, PIP_ACTION_PAUSE);
+      // Make the broadcast explicit. From Android 14 (API 34) implicit intents
+      // are not delivered to runtime-registered RECEIVER_NOT_EXPORTED receivers,
+      // so without setPackage the PiP play/pause button silently does nothing.
+      intent.setPackage(activity.getPackageName());
       PendingIntent pending =
           PendingIntent.getBroadcast(
               activity,
@@ -451,6 +478,8 @@ public class VideoPlayerPlugin
     } else {
       Intent intent =
           new Intent(ACTION_PIP_PLAY_PAUSE).putExtra(EXTRA_PIP_ACTION, PIP_ACTION_PLAY);
+      // See note above: explicit intent required for delivery on Android 14+.
+      intent.setPackage(activity.getPackageName());
       PendingIntent pending =
           PendingIntent.getBroadcast(
               activity,
