@@ -211,8 +211,36 @@ public class VideoPlayerPlugin
   @Override
   public void dispose(long playerId) {
     VideoPlayer player = getPlayer(playerId);
+    // If the player being disposed is the one that armed auto-enter PiP, disarm
+    // it on the Activity first. Otherwise the Activity keeps autoEnterEnabled=true
+    // and the OS throws the whole Flutter UI into a PiP window the next time the
+    // app is backgrounded.
+    if (player == activePipPlayer) {
+      disarmAutoEnterPip();
+    }
     player.dispose();
     videoPlayers.remove(playerId);
+  }
+
+  /**
+   * Forcibly disarms auto-enter PiP on the Activity and clears the active PiP
+   * player. Used when the active PiP player is disposed so a lingering
+   * {@code autoEnterEnabled=true} flag can never throw the whole Flutter UI into
+   * a PiP window on a later background event.
+   */
+  private void disarmAutoEnterPip() {
+    if (activity != null
+        && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
+        && !activity.isInPictureInPictureMode()) {
+      try {
+        activity.setPictureInPictureParams(
+            new PictureInPictureParams.Builder().setAutoEnterEnabled(false).build());
+      } catch (Exception ignored) {
+        // Defensive: some OEM ROMs throw on setPictureInPictureParams.
+      }
+    }
+    activePipPlayer = null;
+    unregisterPipActionReceiver();
   }
 
   @Override
