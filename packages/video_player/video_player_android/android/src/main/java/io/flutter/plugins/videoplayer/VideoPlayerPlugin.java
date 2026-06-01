@@ -330,7 +330,10 @@ public class VideoPlayerPlugin
           @Override
           public void onReceive(Context context, Intent intent) {
             if (!ACTION_PIP_PLAY_PAUSE.equals(intent.getAction())) return;
-            if (activePipPlayer == null || activity == null) return;
+            // Only guard on the player — activity can be temporarily null
+            // during the brief detach/reattach cycle on configuration change
+            // (e.g. PiP window resize). Play/pause must still be delivered.
+            if (activePipPlayer == null) return;
 
             int action = intent.getIntExtra(EXTRA_PIP_ACTION, 0);
             boolean nowPlaying;
@@ -344,11 +347,16 @@ public class VideoPlayerPlugin
               return;
             }
 
-            // Update the PiP window action button to reflect the new state.
-            activity.setPictureInPictureParams(
-                new PictureInPictureParams.Builder()
-                    .setActions(buildPipActions(nowPlaying))
-                    .build());
+            // Update the PiP window action button icon to reflect the new state.
+            // Skip the param update if the activity reference was temporarily
+            // cleared; the button will sync on the next param rebuild.
+            Activity currentActivity = activity;
+            if (currentActivity != null) {
+              currentActivity.setPictureInPictureParams(
+                  new PictureInPictureParams.Builder()
+                      .setActions(buildPipActions(nowPlaying))
+                      .build());
+            }
           }
         };
 
