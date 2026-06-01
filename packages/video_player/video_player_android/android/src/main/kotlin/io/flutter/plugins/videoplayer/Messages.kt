@@ -236,7 +236,7 @@ sealed class PlatformVideoEvent
  *
  * Generated class from Pigeon that represents data sent in messages.
  */
-data class PictureInPictureStartedEvent (
+class PictureInPictureStartedEvent (
 ) : PlatformVideoEvent()
  {
   companion object {
@@ -270,7 +270,7 @@ data class PictureInPictureStartedEvent (
  *
  * Generated class from Pigeon that represents data sent in messages.
  */
-data class PictureInPictureStoppedEvent (
+class PictureInPictureStoppedEvent (
 ) : PlatformVideoEvent()
  {
   companion object {
