@@ -423,7 +423,10 @@ public class VideoPlayerPlugin
     if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return;
     for (int i = 0; i < videoPlayers.size(); i++) {
       VideoPlayer player = videoPlayers.valueAt(i);
-      if (player.isAutoStartPipEnabled()) {
+      // Only enter PiP when auto-start is enabled AND the video is actually
+      // playing.  If the user paused the video before pressing home, the app
+      // should background normally without entering PiP.
+      if (player.isAutoStartPipEnabled() && player.isPlaying()) {
         enterPictureInPicture(player, player.getVideoAspectRatio(), player.getPipSourceRectHint());
         break;
       }
