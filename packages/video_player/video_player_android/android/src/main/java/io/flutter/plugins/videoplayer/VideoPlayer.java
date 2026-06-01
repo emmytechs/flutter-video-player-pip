@@ -69,6 +69,16 @@ public abstract class VideoPlayer implements VideoPlayerInstanceApi {
         @NonNull VideoPlayer player,
         @NonNull Rational aspectRatio,
         @Nullable Rect sourceRectHint);
+
+    /**
+     * Called when the Dart side calls {@code setAutomaticallyStartPictureInPicture}.
+     *
+     * <p>The plugin uses this to pre-register the active PiP player and, on Android 12+,
+     * to set {@code autoEnterEnabled} on {@link android.app.PictureInPictureParams} so the
+     * system enters PiP automatically on background — eliminating the async timing race
+     * that occurred when relying solely on {@code onUserLeaveHint}.
+     */
+    void onAutoStartPipEnabledChanged(@NonNull VideoPlayer player, boolean enabled);
   }
 
   @Nullable private PipDelegate pipDelegate;
@@ -306,6 +316,9 @@ public abstract class VideoPlayer implements VideoPlayerInstanceApi {
   @Override
   public void setAutomaticallyStartPictureInPicture(boolean enabled) {
     autoStartPipEnabled = enabled;
+    if (pipDelegate != null) {
+      pipDelegate.onAutoStartPipEnabledChanged(this, enabled);
+    }
   }
 
   @Override

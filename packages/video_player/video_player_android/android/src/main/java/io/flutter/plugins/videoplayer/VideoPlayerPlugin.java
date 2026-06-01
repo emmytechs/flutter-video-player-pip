@@ -302,6 +302,55 @@ public class VideoPlayerPlugin
   }
 
   /**
+   * Called synchronously whenever Dart calls {@code setAutomaticallyStartPictureInPicture}.
+   *
+   * <p>On Android 12+ (API 31+): sets {@code autoEnterEnabled} on the Activity's PiP params so
+   * the system enters PiP automatically when the user presses home — no {@code onUserLeaveHint}
+   * timing dependency required.
+   *
+   * <p>On Android 8–11 (API 26–30): pre-registers the active player and broadcast receiver so
+   * they are ready before {@code onUserLeaveHint} fires, eliminating the async race.
+   */
+  @Override
+  public void onAutoStartPipEnabledChanged(@NonNull VideoPlayer player, boolean enabled) {
+    if (activity == null || Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return;
+
+    if (enabled) {
+      activePipPlayer = player;
+      registerPipActionReceiver();
+
+      if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+        try {
+          activity.setPictureInPictureParams(
+              new PictureInPictureParams.Builder()
+                  .setAutoEnterEnabled(true)
+                  .setAspectRatio(player.getVideoAspectRatio())
+                  .setActions(buildPipActions(player.isPlaying()))
+                  .setSeamlessResizeEnabled(true)
+                  .build());
+        } catch (Exception ignored) {
+          // Defensive: some OEM ROMs throw on setPictureInPictureParams.
+        }
+      }
+    } else {
+      if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+        try {
+          activity.setPictureInPictureParams(
+              new PictureInPictureParams.Builder()
+                  .setAutoEnterEnabled(false)
+                  .build());
+        } catch (Exception ignored) {}
+      }
+      // Clean up only when we are NOT already inside a native PiP session.
+      // If we are, onPictureInPictureModeChanged(false) will clean up instead.
+      if (!activity.isInPictureInPictureMode()) {
+        activePipPlayer = null;
+        unregisterPipActionReceiver();
+      }
+    }
+  }
+
+  /**
    * Called by {@code MainActivity.onPictureInPictureModeChanged}.
    *
    * <p>Routes the system callback to the currently active PiP player so Flutter
@@ -420,16 +469,34 @@ public class VideoPlayerPlugin
   }
 
   private void onUserLeaveHint() {
-    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return;
-    for (int i = 0; i < videoPlayers.size(); i++) {
-      VideoPlayer player = videoPlayers.valueAt(i);
-      // Only enter PiP when auto-start is enabled AND the video is actually
-      // playing.  If the user paused the video before pressing home, the app
-      // should background normally without entering PiP.
-      if (player.isAutoStartPipEnabled() && player.isPlaying()) {
-        enterPictureInPicture(player, player.getVideoAspectRatio(), player.getPipSourceRectHint());
-        break;
+    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O || activity == null) return;
+
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+      // Android 12+: autoEnterEnabled is set in onAutoStartPipEnabledChanged.
+      // The system enters PiP automatically — no manual call needed here.
+      // However, we still update the PiP params with the current play state so
+      // the correct play/pause button is shown in the PiP window.
+      if (activePipPlayer != null) {
+        try {
+          activity.setPictureInPictureParams(
+              new PictureInPictureParams.Builder()
+                  .setAutoEnterEnabled(true)
+                  .setAspectRatio(activePipPlayer.getVideoAspectRatio())
+                  .setActions(buildPipActions(activePipPlayer.isPlaying()))
+                  .setSeamlessResizeEnabled(true)
+                  .build());
+        } catch (Exception ignored) {}
       }
+      return;
+    }
+
+    // Android 8–11: activePipPlayer is pre-registered in onAutoStartPipEnabledChanged,
+    // so check it directly without an async flag race.
+    if (activePipPlayer != null && activePipPlayer.isPlaying()) {
+      enterPictureInPicture(
+          activePipPlayer,
+          activePipPlayer.getVideoAspectRatio(),
+          activePipPlayer.getPipSourceRectHint());
     }
   }
 
