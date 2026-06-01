@@ -241,8 +241,8 @@ class AndroidVideoPlayer extends VideoPlayerPlatform {
   }
 
   @override
-  Future<void> setAutomaticallyStartPictureInPicture(
-    int playerId, {
+  Future<void> setAutomaticallyStartPictureInPicture({
+    required int playerId,
     required bool enableStartPictureInPictureAutomaticallyFromInline,
   }) {
     return _playerWith(id: playerId).setAutomaticallyStartPictureInPicture(

@@ -122,10 +122,16 @@ sealed class PlatformVideoEvent {
 
 /// Sent when picture-in-picture mode starts.
 class PictureInPictureStartedEvent extends PlatformVideoEvent {
+  Object encode() => <Object?>[];
+  static PictureInPictureStartedEvent decode(Object result) =>
+      PictureInPictureStartedEvent();
 }
 
 /// Sent when picture-in-picture mode stops.
 class PictureInPictureStoppedEvent extends PlatformVideoEvent {
+  Object encode() => <Object?>[];
+  static PictureInPictureStoppedEvent decode(Object result) =>
+      PictureInPictureStoppedEvent();
 }
 
 /// Sent when the video is initialized and ready to play.
