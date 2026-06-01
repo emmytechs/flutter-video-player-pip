@@ -5,9 +5,15 @@
 package io.flutter.plugins.videoplayer;
 
 import android.app.Activity;
+import android.app.PendingIntent;
 import android.app.PictureInPictureParams;
+import android.app.RemoteAction;
+import android.content.BroadcastReceiver;
 import android.content.Context;
+import android.content.Intent;
+import android.content.IntentFilter;
 import android.graphics.Rect;
+import android.graphics.drawable.Icon;
 import android.os.Build;
 import android.util.LongSparseArray;
 import android.util.Rational;
@@ -15,6 +21,8 @@ import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.annotation.OptIn;
 import androidx.annotation.RequiresApi;
+import java.util.ArrayList;
+import java.util.List;
 import androidx.media3.common.util.UnstableApi;
 import io.flutter.FlutterInjector;
 import io.flutter.Log;
@@ -31,6 +39,16 @@ import io.flutter.view.TextureRegistry;
 public class VideoPlayerPlugin
     implements FlutterPlugin, AndroidVideoPlayerApi, ActivityAware, VideoPlayer.PipDelegate {
   private static final String TAG = "VideoPlayerPlugin";
+
+  // PiP action broadcast constants
+  private static final String ACTION_PIP_PLAY_PAUSE =
+      "io.flutter.plugins.videoplayer.PIP_PLAY_PAUSE";
+  private static final String EXTRA_PIP_ACTION = "pip_action";
+  private static final int PIP_ACTION_PAUSE = 1;
+  private static final int PIP_ACTION_PLAY = 2;
+  private static final int PIP_REQUEST_CODE_PAUSE = 101;
+  private static final int PIP_REQUEST_CODE_PLAY = 102;
+
   private final LongSparseArray<VideoPlayer> videoPlayers = new LongSparseArray<>();
   private FlutterState flutterState;
   private final VideoPlayerOptions sharedOptions = new VideoPlayerOptions();
@@ -39,6 +57,7 @@ public class VideoPlayerPlugin
   @Nullable private Activity activity;
   @Nullable private ActivityPluginBinding activityPluginBinding;
   @Nullable private VideoPlayer activePipPlayer;
+  @Nullable private BroadcastReceiver pipActionReceiver;
 
   /** Register this with the v2 embedding for the plugin to respond to lifecycle callbacks. */
   public VideoPlayerPlugin() {}
@@ -264,9 +283,12 @@ public class VideoPlayerPlugin
     if (activity == null) return;
 
     activePipPlayer = player;
+    registerPipActionReceiver();
 
     PictureInPictureParams.Builder builder =
-        new PictureInPictureParams.Builder().setAspectRatio(aspectRatio);
+        new PictureInPictureParams.Builder()
+            .setAspectRatio(aspectRatio)
+            .setActions(buildPipActions(player.isPlaying()));
 
     if (sourceRectHint != null) {
       builder.setSourceRectHint(sourceRectHint);
@@ -293,7 +315,100 @@ public class VideoPlayerPlugin
     } else {
       activePipPlayer.getVideoPlayerCallbacks().onPictureInPictureStopped();
       activePipPlayer = null;
+      unregisterPipActionReceiver();
     }
+  }
+
+  // ── PiP play/pause action helpers ─────────────────────────────────────────
+
+  @RequiresApi(api = Build.VERSION_CODES.O)
+  private void registerPipActionReceiver() {
+    if (pipActionReceiver != null || activity == null) return;
+
+    pipActionReceiver =
+        new BroadcastReceiver() {
+          @Override
+          public void onReceive(Context context, Intent intent) {
+            if (!ACTION_PIP_PLAY_PAUSE.equals(intent.getAction())) return;
+            if (activePipPlayer == null || activity == null) return;
+
+            int action = intent.getIntExtra(EXTRA_PIP_ACTION, 0);
+            boolean nowPlaying;
+            if (action == PIP_ACTION_PAUSE) {
+              activePipPlayer.pause();
+              nowPlaying = false;
+            } else if (action == PIP_ACTION_PLAY) {
+              activePipPlayer.play();
+              nowPlaying = true;
+            } else {
+              return;
+            }
+
+            // Update the PiP window action button to reflect the new state.
+            activity.setPictureInPictureParams(
+                new PictureInPictureParams.Builder()
+                    .setActions(buildPipActions(nowPlaying))
+                    .build());
+          }
+        };
+
+    IntentFilter filter = new IntentFilter(ACTION_PIP_PLAY_PAUSE);
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+      activity.registerReceiver(pipActionReceiver, filter, Context.RECEIVER_NOT_EXPORTED);
+    } else {
+      activity.registerReceiver(pipActionReceiver, filter);
+    }
+  }
+
+  private void unregisterPipActionReceiver() {
+    if (pipActionReceiver == null || activity == null) return;
+    try {
+      activity.unregisterReceiver(pipActionReceiver);
+    } catch (Exception ignored) {
+      // Receiver may have already been unregistered.
+    }
+    pipActionReceiver = null;
+  }
+
+  @RequiresApi(api = Build.VERSION_CODES.O)
+  @NonNull
+  private List<RemoteAction> buildPipActions(boolean isPlaying) {
+    List<RemoteAction> actions = new ArrayList<>();
+    if (activity == null) return actions;
+
+    if (isPlaying) {
+      Intent intent =
+          new Intent(ACTION_PIP_PLAY_PAUSE).putExtra(EXTRA_PIP_ACTION, PIP_ACTION_PAUSE);
+      PendingIntent pending =
+          PendingIntent.getBroadcast(
+              activity,
+              PIP_REQUEST_CODE_PAUSE,
+              intent,
+              PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT);
+      actions.add(
+          new RemoteAction(
+              Icon.createWithResource(activity, android.R.drawable.ic_media_pause),
+              "Pause",
+              "Pause video",
+              pending));
+    } else {
+      Intent intent =
+          new Intent(ACTION_PIP_PLAY_PAUSE).putExtra(EXTRA_PIP_ACTION, PIP_ACTION_PLAY);
+      PendingIntent pending =
+          PendingIntent.getBroadcast(
+              activity,
+              PIP_REQUEST_CODE_PLAY,
+              intent,
+              PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT);
+      actions.add(
+          new RemoteAction(
+              Icon.createWithResource(activity, android.R.drawable.ic_media_play),
+              "Play",
+              "Play video",
+              pending));
+    }
+
+    return actions;
   }
 
   private void onUserLeaveHint() {
