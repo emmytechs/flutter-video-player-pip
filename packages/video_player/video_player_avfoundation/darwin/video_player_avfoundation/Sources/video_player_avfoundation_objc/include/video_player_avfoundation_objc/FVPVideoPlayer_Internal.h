@@ -3,6 +3,12 @@
 // found in the LICENSE file.
 
 @import AVFoundation;
+#if TARGET_OS_IOS
+// AVPictureInPictureController is declared in AVKit. It is referenced by the
+// iOS-only PiP properties below, so AVKit must be visible wherever this header
+// is parsed (not just in the .m that happens to import it).
+@import AVKit;
+#endif
 
 #import "FVPAVFactory.h"
 #import "FVPVideoEventListener.h"
