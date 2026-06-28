@@ -246,14 +246,18 @@ static NSDictionary<NSString *, NSValue *> *FVPGetPlayerItemObservations(void) {
 - (void)pictureInPictureController:(AVPictureInPictureController *)pictureInPictureController
     restoreUserInterfaceForPictureInPictureStopWithCompletionHandler:
         (void (^)(BOOL restored))completionHandler {
-  // Notify Flutter as early as possible (the moment the user taps "return to
-  // app") so it can restore the originating screen *during* the PiP restore
-  // animation, rather than after the app has already foregrounded on a
-  // different screen. The subsequent didStopPictureInPicture callback also
-  // fires this event, but by then the UI state is already settled so it is a
-  // harmless no-op.
+  // Tell Flutter to restore the originating screen immediately (the moment the
+  // user taps "return to app").
   [self.eventListener videoPlayerDidStopPictureInPicture];
-  completionHandler(YES);
+  // Then give Flutter a brief moment to push and build that screen before
+  // signaling iOS to finish the restore animation. Calling completionHandler
+  // immediately makes iOS complete the transition over a not-yet-built UI,
+  // producing a flash of the bare video over a black background. Holding the
+  // PiP window for a short interval lets the restored UI be in place first.
+  dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.45 * NSEC_PER_SEC)),
+                 dispatch_get_main_queue(), ^{
+                   completionHandler(YES);
+                 });
 }
 #endif
 
@@ -667,6 +671,17 @@ NS_INLINE CGFloat radiansToDegrees(CGFloat radians) {
                                  details:nil];
     return;
   }
+
+  // Ensure the shared audio session is in the playback category and active
+  // before PiP starts. Playback only continues while the app is backgrounded
+  // (e.g. after pressing the Home button) if the audio session is active at the
+  // moment of backgrounding (Apple QA1668), and keeping the category at
+  // playback prevents iOS from tearing down the PiP controller. Done natively
+  // here so it is reliable regardless of any Dart-side audio session handling.
+  AVAudioSession *audioSession = [AVAudioSession sharedInstance];
+  [audioSession setCategory:AVAudioSessionCategoryPlayback error:nil];
+  [audioSession setActive:YES error:nil];
+
   [self startOrStopPictureInPicture:YES];
 }
 
