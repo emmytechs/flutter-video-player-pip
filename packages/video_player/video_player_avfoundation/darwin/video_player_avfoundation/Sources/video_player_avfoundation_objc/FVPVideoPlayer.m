@@ -246,6 +246,13 @@ static NSDictionary<NSString *, NSValue *> *FVPGetPlayerItemObservations(void) {
 - (void)pictureInPictureController:(AVPictureInPictureController *)pictureInPictureController
     restoreUserInterfaceForPictureInPictureStopWithCompletionHandler:
         (void (^)(BOOL restored))completionHandler {
+  // Notify Flutter as early as possible (the moment the user taps "return to
+  // app") so it can restore the originating screen *during* the PiP restore
+  // animation, rather than after the app has already foregrounded on a
+  // different screen. The subsequent didStopPictureInPicture callback also
+  // fires this event, but by then the UI state is already settled so it is a
+  // harmless no-op.
+  [self.eventListener videoPlayerDidStopPictureInPicture];
   completionHandler(YES);
 }
 #endif
@@ -398,6 +405,18 @@ NS_INLINE CGFloat radiansToDegrees(CGFloat radians) {
     // Important: Make sure to cast the object to AVPlayer when observing the rate property,
     // as it is not available in AVPlayerItem.
     AVPlayer *player = (AVPlayer *)object;
+#if TARGET_OS_IOS
+    // While Picture in Picture is active the user can play/pause directly from
+    // the PiP window. Sync our internal play/pause intent to the player's real
+    // state so -updatePlayingState does not later re-assert the previous rate
+    // and fight those controls. timeControlStatus distinguishes a deliberate
+    // pause (AVPlayerTimeControlStatusPaused) from a transient buffering stall
+    // (AVPlayerTimeControlStatusWaitingToPlayAtSpecifiedRate), so buffering
+    // auto-resume keeps working. Scoped to PiP so normal playback is unchanged.
+    if (_isPictureInPictureStarted) {
+      _isPlaying = (player.timeControlStatus != AVPlayerTimeControlStatusPaused);
+    }
+#endif
     [self.eventListener videoPlayerDidSetPlaying:(player.rate > 0)];
   }
 }
