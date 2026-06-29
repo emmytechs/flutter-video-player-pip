@@ -451,6 +451,17 @@ NS_INLINE CGFloat radiansToDegrees(CGFloat radians) {
   if (!_isInitialized) {
     return;
   }
+#if TARGET_OS_IOS
+  // While Picture in Picture is active the native PiP controls own playback.
+  // Returning here prevents -updatePlayingState (which is also triggered by
+  // buffering/status KVO) from racing the user's PiP play/pause taps and
+  // re-pausing the player right after AVKit starts it. The rate observer keeps
+  // Flutter's playing state in sync; normal control resumes once PiP ends and
+  // _isPictureInPictureStarted becomes NO.
+  if (_isPictureInPictureStarted) {
+    return;
+  }
+#endif
   if (_isPlaying) {
     // Calling play is the same as setting the rate to 1.0 (or to defaultRate depending on iOS
     // version) so last set playback speed must be set here if any instead.
