@@ -77,10 +77,6 @@ static NSDictionary<NSString *, NSValue *> *FVPGetPlayerItemObservations(void) {
 @implementation FVPVideoPlayer {
   // Whether or not player and player item listeners have ever been registered.
   BOOL _listenersRegistered;
-  // Whether the current item has played to its end. Used to replay from the
-  // start when the user taps play in the iOS PiP window (which has no replay
-  // button of its own).
-  BOOL _playedToEnd;
 }
 
 - (instancetype)initWithPlayerItem:(NSObject<FVPAVPlayerItem> *)item
@@ -315,10 +311,18 @@ static NSDictionary<NSString *, NSValue *> *FVPGetPlayerItemObservations(void) {
   if (_isLooping) {
     AVPlayerItem *p = [notification object];
     [p seekToTime:kCMTimeZero completionHandler:nil];
-  } else {
-    _playedToEnd = YES;
-    [self.eventListener videoPlayerDidComplete];
+    return;
   }
+  [self.eventListener videoPlayerDidComplete];
+#if TARGET_OS_IOS
+  // Native PiP has no replay button, and AVPlayer ignores -play while parked at
+  // the end of an item. Rewind to the start (staying paused) so the PiP play
+  // button restarts the video from the beginning. Scoped to PiP so inline
+  // end-of-playback behavior is unchanged.
+  if (_isPictureInPictureStarted) {
+    [_player seekToTime:kCMTimeZero completionHandler:nil];
+  }
+#endif
 }
 
 const int64_t TIME_UNSET = -9223372036854775807;
@@ -418,12 +422,6 @@ NS_INLINE CGFloat radiansToDegrees(CGFloat radians) {
     // auto-resume keeps working. Scoped to PiP so normal playback is unchanged.
     if (_isPictureInPictureStarted) {
       _isPlaying = (player.timeControlStatus != AVPlayerTimeControlStatusPaused);
-      // Native PiP has no replay button, so if the user taps play after the
-      // video has finished, restart it from the beginning.
-      if (player.rate > 0 && _playedToEnd) {
-        _playedToEnd = NO;
-        [player seekToTime:kCMTimeZero completionHandler:nil];
-      }
     }
 #endif
     [self.eventListener videoPlayerDidSetPlaying:(player.rate > 0)];
@@ -545,7 +543,6 @@ NS_INLINE CGFloat radiansToDegrees(CGFloat radians) {
 }
 
 - (void)seekTo:(NSInteger)position completion:(void (^)(FlutterError *_Nullable))completion {
-  _playedToEnd = NO;
   CMTime targetCMTime = CMTimeMake(position, 1000);
   CMTimeValue duration = _player.currentItem.asset.duration.value;
   // Without adding tolerance when seeking to duration,
