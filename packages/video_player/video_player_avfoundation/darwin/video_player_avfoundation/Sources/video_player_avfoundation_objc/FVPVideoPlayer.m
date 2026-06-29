@@ -311,18 +311,9 @@ static NSDictionary<NSString *, NSValue *> *FVPGetPlayerItemObservations(void) {
   if (_isLooping) {
     AVPlayerItem *p = [notification object];
     [p seekToTime:kCMTimeZero completionHandler:nil];
-    return;
+  } else {
+    [self.eventListener videoPlayerDidComplete];
   }
-  [self.eventListener videoPlayerDidComplete];
-#if TARGET_OS_IOS
-  // Native PiP has no replay button, and AVPlayer ignores -play while parked at
-  // the end of an item. Rewind to the start (staying paused) so the PiP play
-  // button restarts the video from the beginning. Scoped to PiP so inline
-  // end-of-playback behavior is unchanged.
-  if (_isPictureInPictureStarted) {
-    [_player seekToTime:kCMTimeZero completionHandler:nil];
-  }
-#endif
 }
 
 const int64_t TIME_UNSET = -9223372036854775807;
@@ -451,17 +442,6 @@ NS_INLINE CGFloat radiansToDegrees(CGFloat radians) {
   if (!_isInitialized) {
     return;
   }
-#if TARGET_OS_IOS
-  // While Picture in Picture is active the native PiP controls own playback.
-  // Returning here prevents -updatePlayingState (which is also triggered by
-  // buffering/status KVO) from racing the user's PiP play/pause taps and
-  // re-pausing the player right after AVKit starts it. The rate observer keeps
-  // Flutter's playing state in sync; normal control resumes once PiP ends and
-  // _isPictureInPictureStarted becomes NO.
-  if (_isPictureInPictureStarted) {
-    return;
-  }
-#endif
   if (_isPlaying) {
     // Calling play is the same as setting the rate to 1.0 (or to defaultRate depending on iOS
     // version) so last set playback speed must be set here if any instead.
