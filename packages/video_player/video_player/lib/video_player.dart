@@ -756,9 +756,7 @@ class VideoPlayerController extends ValueNotifier<VideoPlayerValue> {
 
   /// Set the location of the video player view so picture in picture can use
   /// it for animating in/out.
-  Future<void> setPictureInPictureOverlayRect({
-    required Rect rect,
-  }) async {
+  Future<void> setPictureInPictureOverlayRect({required Rect rect}) async {
     if (!value.isInitialized || _isDisposed) {
       return;
     }
@@ -1106,6 +1104,11 @@ class _VideoAppLifeCycleObserver extends Object with WidgetsBindingObserver {
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.paused) {
+      // Do not pause when Picture-in-Picture is active: the video is meant to
+      // keep playing in the PiP window while the app is backgrounded.
+      if (_controller.value.isPictureInPictureActive) {
+        return;
+      }
       _wasPlayingBeforePause = _controller.value.isPlaying;
       _controller.pause();
     } else if (state == AppLifecycleState.resumed) {

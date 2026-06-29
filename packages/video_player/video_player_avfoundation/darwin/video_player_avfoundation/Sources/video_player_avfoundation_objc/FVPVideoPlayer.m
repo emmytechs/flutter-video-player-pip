@@ -246,18 +246,12 @@ static NSDictionary<NSString *, NSValue *> *FVPGetPlayerItemObservations(void) {
 - (void)pictureInPictureController:(AVPictureInPictureController *)pictureInPictureController
     restoreUserInterfaceForPictureInPictureStopWithCompletionHandler:
         (void (^)(BOOL restored))completionHandler {
-  // Tell Flutter to restore the originating screen immediately (the moment the
-  // user taps "return to app").
+  // Navigate back to the originating screen as soon as the user taps "return to
+  // app", then immediately signal iOS to finish the restore. A brief flash of
+  // the video over a black background during the transition is expected
+  // behavior (the same as the system player and YouTube).
   [self.eventListener videoPlayerDidStopPictureInPicture];
-  // Then give Flutter a brief moment to push and build that screen before
-  // signaling iOS to finish the restore animation. Calling completionHandler
-  // immediately makes iOS complete the transition over a not-yet-built UI,
-  // producing a flash of the bare video over a black background. Holding the
-  // PiP window for a short interval lets the restored UI be in place first.
-  dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.45 * NSEC_PER_SEC)),
-                 dispatch_get_main_queue(), ^{
-                   completionHandler(YES);
-                 });
+  completionHandler(YES);
 }
 #endif
 
