@@ -77,6 +77,10 @@ static NSDictionary<NSString *, NSValue *> *FVPGetPlayerItemObservations(void) {
 @implementation FVPVideoPlayer {
   // Whether or not player and player item listeners have ever been registered.
   BOOL _listenersRegistered;
+  // Whether the current item has played to its end. Used to replay from the
+  // start when the user taps play in the iOS PiP window (which has no replay
+  // button of its own).
+  BOOL _playedToEnd;
 }
 
 - (instancetype)initWithPlayerItem:(NSObject<FVPAVPlayerItem> *)item
@@ -312,6 +316,7 @@ static NSDictionary<NSString *, NSValue *> *FVPGetPlayerItemObservations(void) {
     AVPlayerItem *p = [notification object];
     [p seekToTime:kCMTimeZero completionHandler:nil];
   } else {
+    _playedToEnd = YES;
     [self.eventListener videoPlayerDidComplete];
   }
 }
@@ -413,6 +418,12 @@ NS_INLINE CGFloat radiansToDegrees(CGFloat radians) {
     // auto-resume keeps working. Scoped to PiP so normal playback is unchanged.
     if (_isPictureInPictureStarted) {
       _isPlaying = (player.timeControlStatus != AVPlayerTimeControlStatusPaused);
+      // Native PiP has no replay button, so if the user taps play after the
+      // video has finished, restart it from the beginning.
+      if (player.rate > 0 && _playedToEnd) {
+        _playedToEnd = NO;
+        [player seekToTime:kCMTimeZero completionHandler:nil];
+      }
     }
 #endif
     [self.eventListener videoPlayerDidSetPlaying:(player.rate > 0)];
@@ -534,6 +545,7 @@ NS_INLINE CGFloat radiansToDegrees(CGFloat radians) {
 }
 
 - (void)seekTo:(NSInteger)position completion:(void (^)(FlutterError *_Nullable))completion {
+  _playedToEnd = NO;
   CMTime targetCMTime = CMTimeMake(position, 1000);
   CMTimeValue duration = _player.currentItem.asset.duration.value;
   // Without adding tolerance when seeking to duration,
