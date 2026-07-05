@@ -58,8 +58,17 @@ public class PlatformViewVideoPlayer extends VideoPlayer {
         () -> {
           androidx.media3.exoplayer.trackselection.DefaultTrackSelector trackSelector =
               new androidx.media3.exoplayer.trackselection.DefaultTrackSelector(context);
+          // Enable decoder fallback so that when a hardware decoder fails to
+          // configure (e.g. a high-resolution/High-Profile H.264 stream that
+          // exceeds the device's hardware AVC decoder capabilities, reported as
+          // NO_EXCEEDS_CAPABILITIES), ExoPlayer retries with the next decoder in
+          // the list — typically the platform software decoder — instead of
+          // failing playback outright.
+          androidx.media3.exoplayer.DefaultRenderersFactory renderersFactory =
+              new androidx.media3.exoplayer.DefaultRenderersFactory(context)
+                  .setEnableDecoderFallback(true);
           ExoPlayer.Builder builder =
-              new ExoPlayer.Builder(context)
+              new ExoPlayer.Builder(context, renderersFactory)
                   .setTrackSelector(trackSelector)
                   .setMediaSourceFactory(asset.getMediaSourceFactory(context));
           return builder.build();
