@@ -9,6 +9,7 @@ import static androidx.media3.common.Player.REPEAT_MODE_OFF;
 
 import android.graphics.Rect;
 import android.os.Build;
+import android.util.Log;
 import android.util.Rational;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
@@ -208,14 +209,51 @@ public abstract class VideoPlayer implements VideoPlayerInstanceApi {
       return -1;
     }
 
-    // The window's default position is the live edge. Both it and the current
-    // position are relative to the start of the same window, so when that
-    // window slides or re-anchors they move together and this difference
-    // stays steady. Differencing against getDuration() does not hold: the
-    // window length does not shift with the window, so it jumps on every
-    // playlist refresh.
-    long offsetMs = window.getDefaultPositionMs() - exoPlayer.getCurrentPosition();
-    return Math.max(0, offsetMs);
+    // ExoPlayer measures the live edge against the wall clock — the window's
+    // UNIX start time (from EXT-X-PROGRAM-DATE-TIME) plus real elapsed time —
+    // not against the manifest. So this figure holds steady while playback
+    // keeps pace with real time and grows by exactly the elapsed time while
+    // playback is paused or seeked back, matching what AVFoundation reports
+    // from seekableTimeRanges. It is also immune to playlist refreshes:
+    // windowStartTimeMs and the current position shift by the same amount
+    // when the window re-anchors, so their sum — the absolute playback time —
+    // does not move.
+    long liveOffsetMs = exoPlayer.getCurrentLiveOffset();
+    long currentPositionMs = exoPlayer.getCurrentPosition();
+    long fallbackOffsetMs = window.getDefaultPositionMs() - currentPositionMs;
+
+    // TEMP diagnostic (adnc live-offset investigation): compare the wall-clock
+    // API against the old manifest calc, and show whether the playlist carries
+    // a program date time (windowStartTimeMs == TIME_UNSET when it does not).
+    Log.d(
+        "ADNC_LIVE_OFFSET",
+        "getCurrentLiveOffset="
+            + liveOffsetMs
+            + " fallback(defaultPos-pos)="
+            + fallbackOffsetMs
+            + " defaultPositionMs="
+            + window.getDefaultPositionMs()
+            + " currentPositionMs="
+            + currentPositionMs
+            + " windowStartTimeMs="
+            + window.windowStartTimeMs
+            + " windowDurationMs="
+            + window.getDurationMs()
+            + " hasProgramDateTime="
+            + (window.windowStartTimeMs != C.TIME_UNSET)
+            + " path="
+            + (liveOffsetMs != C.TIME_UNSET ? "wallclock" : "fallback"));
+
+    if (liveOffsetMs != C.TIME_UNSET) {
+      return Math.max(0, liveOffsetMs);
+    }
+
+    // Fallback for a playlist with no program date time: the window's default
+    // position is the manifest's live edge. This only advances on playlist
+    // refresh while getCurrentPosition() advances continuously, so it
+    // sawtooths by up to a target-duration between refreshes — but without a
+    // wall-clock anchor it is the best figure available.
+    return Math.max(0, fallbackOffsetMs);
   }
 
   @Override
