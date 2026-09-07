@@ -225,7 +225,7 @@ public abstract class VideoPlayer implements VideoPlayerInstanceApi {
     // TEMP diagnostic (adnc live-offset investigation): compare the wall-clock
     // API against the old manifest calc, and show whether the playlist carries
     // a program date time (windowStartTimeMs == TIME_UNSET when it does not).
-    Log.d(
+    Log.i(
         "ADNC_LIVE_OFFSET",
         "getCurrentLiveOffset="
             + liveOffsetMs

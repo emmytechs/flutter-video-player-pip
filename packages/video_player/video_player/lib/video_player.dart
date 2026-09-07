@@ -174,6 +174,7 @@ class VideoPlayerValue {
     this.rotationCorrection = 0,
     this.errorDescription,
     this.isCompleted = false,
+    this.isLive = false,
   });
 
   /// Returns an instance for a video that hasn't been loaded.
@@ -243,6 +244,14 @@ class VideoPlayerValue {
   /// Does not update if video is looping.
   final bool isCompleted;
 
+  /// True while the player is on an ongoing broadcast rather than a fixed
+  /// recording.
+  ///
+  /// A live stream has no end to reach, and [duration] is the length of the
+  /// seekable window rather than a finish line, so the end-of-video handling
+  /// that [position] reaching [duration] normally triggers must not apply.
+  final bool isLive;
+
   /// The [size] of the currently loaded video.
   final Size size;
 
@@ -292,6 +301,7 @@ class VideoPlayerValue {
     int? rotationCorrection,
     String? errorDescription = _defaultErrorDescription,
     bool? isCompleted,
+    bool? isLive,
   }) {
     return VideoPlayerValue(
       duration: duration ?? this.duration,
@@ -313,6 +323,7 @@ class VideoPlayerValue {
           ? errorDescription
           : this.errorDescription,
       isCompleted: isCompleted ?? this.isCompleted,
+      isLive: isLive ?? this.isLive,
     );
   }
 
@@ -333,7 +344,8 @@ class VideoPlayerValue {
         'volume: $volume, '
         'playbackSpeed: $playbackSpeed, '
         'errorDescription: $errorDescription, '
-        'isCompleted: $isCompleted),';
+        'isCompleted: $isCompleted, '
+        'isLive: $isLive),';
   }
 
   @override
@@ -356,7 +368,8 @@ class VideoPlayerValue {
           size == other.size &&
           rotationCorrection == other.rotationCorrection &&
           isInitialized == other.isInitialized &&
-          isCompleted == other.isCompleted;
+          isCompleted == other.isCompleted &&
+          isLive == other.isLive;
 
   @override
   int get hashCode => Object.hash(
@@ -376,6 +389,7 @@ class VideoPlayerValue {
     rotationCorrection,
     isInitialized,
     isCompleted,
+    isLive,
   );
 }
 
@@ -715,7 +729,12 @@ class VideoPlayerController extends ValueNotifier<VideoPlayerValue> {
   /// has been sent to the platform, not when playback itself is totally
   /// finished.
   Future<void> play() async {
-    if (value.position == value.duration) {
+    // Restarting from the top only makes sense for a recording that has run
+    // out. On a live stream `duration` is the length of the seekable window,
+    // which playback sits at the end of whenever the viewer is at the live
+    // edge, so this would rewind them to the oldest frame still in the DVR
+    // window every time they resumed.
+    if (!value.isLive && value.position == value.duration) {
       await seekTo(Duration.zero);
     }
     value = value.copyWith(isPlaying: true);
@@ -1023,7 +1042,8 @@ class VideoPlayerController extends ValueNotifier<VideoPlayerValue> {
     }
   }
 
-  /// Refreshes [VideoPlayerValue.duration] from the platform.
+  /// Refreshes [VideoPlayerValue.duration] and [VideoPlayerValue.isLive] from
+  /// the platform.
   ///
   /// The duration delivered with the initialization event is a snapshot, but
   /// it is not always the whole story. A live stream's duration grows for as
@@ -1031,30 +1051,54 @@ class VideoPlayerController extends ValueNotifier<VideoPlayerValue> {
   /// duration at all until its first seekable range arrives. Both [seekTo]
   /// and [_updatePosition] clamp against this value, so leaving it stale pins
   /// the reported position and silently discards seeks past it.
+  ///
+  /// Live-ness is read alongside it because the two are only meaningful
+  /// together: on a live stream [duration] is the length of the seekable
+  /// window, not a finish line, so reaching it must not be mistaken for the
+  /// video ending. It is re-read rather than latched so a broadcast that ends
+  /// mid-session gets ordinary end-of-video handling back.
   Future<void> _refreshDuration() async {
     if (_isDisposed) {
       return;
     }
     final Duration duration = await _videoPlayerPlatform.getDuration(_playerId);
-    if (_isDisposed ||
-        duration <= Duration.zero ||
-        duration == value.duration) {
+    if (_isDisposed) {
       return;
     }
-    value = value.copyWith(duration: duration);
+    final bool isLive =
+        await _videoPlayerPlatform.getLiveOffset(_playerId) != null;
+    if (_isDisposed) {
+      return;
+    }
+    final bool durationIsStale =
+        duration <= Duration.zero || duration == value.duration;
+    if (durationIsStale && isLive == value.isLive) {
+      return;
+    }
+    value = value.copyWith(
+      duration: durationIsStale ? null : duration,
+      isLive: isLive,
+    );
   }
 
   void _updatePosition(Duration position) {
     // The underlying native implementation on some platforms sometimes reports
     // a position slightly past the reported max duration. Clamp to the duration
     // to insulate clients from this behavior.
-    if (position > value.duration) {
+    //
+    // Not on a live stream: there both ends move. ExoPlayer measures the
+    // position from the start of the seekable window but only re-anchors it
+    // when the playlist refreshes, so between refreshes the position climbs
+    // past the window length and then drops back. Clamping pins it to
+    // `duration` — which also reads as completed, and sends the next `play()`
+    // back to the start of the window.
+    if (!value.isLive && position > value.duration) {
       position = value.duration;
     }
     value = value.copyWith(
       position: position,
       caption: _getCaptionAt(position),
-      isCompleted: position == value.duration,
+      isCompleted: !value.isLive && position == value.duration,
     );
   }
 
