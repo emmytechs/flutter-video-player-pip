@@ -44,15 +44,15 @@ public abstract class VideoPlayer implements VideoPlayerInstanceApi {
   // TODO: Migrate to stable API, see https://github.com/flutter/flutter/issues/147039.
   @UnstableApi @Nullable protected DefaultTrackSelector trackSelector;
 
-  // Anchor used to extrapolate the live offset between playlist refreshes.
-  // See getLiveOffset().
-  private long liveAnchorRealtimeMs = C.TIME_UNSET;
-  private long liveAnchorPositionMs = C.TIME_UNSET;
-  private long liveAnchorOffsetMs = C.TIME_UNSET;
-  private long lastRawLiveOffsetMs = C.TIME_UNSET;
+  /** When the live window was last refreshed. See {@link #getLiveOffset()}. */
+  private volatile long lastTimelineChangeRealtimeMs = C.TIME_UNSET;
 
-  /** How far the raw live offset must step up to read as a playlist refresh. */
-  private static final long LIVE_REANCHOR_THRESHOLD_MS = 500;
+  /**
+   * Ceiling on the staleness correction in {@link #getLiveOffset()}, so a
+   * timeline that stops refreshing entirely reports a stuck figure rather than
+   * one that climbs forever.
+   */
+  private static final long MAX_TIMELINE_STALENESS_MS = 60_000;
 
   /** A closure-compatible signature since {@link java.util.function.Supplier} is API level 24. */
   public interface ExoPlayerProvider {
@@ -144,6 +144,14 @@ public abstract class VideoPlayer implements VideoPlayerInstanceApi {
               pipDelegate.onPlayingStateChanged(VideoPlayer.this, isPlaying);
             }
           }
+
+          @Override
+          public void onTimelineChanged(@NonNull Timeline timeline, int reason) {
+            // Marks the moment the live window was last refreshed, which is
+            // the only moment its default position is up to date. See
+            // getLiveOffset().
+            lastTimelineChangeRealtimeMs = SystemClock.elapsedRealtime();
+          }
         });
     setAudioAttributes(exoPlayer, options.mixWithOthers);
   }
@@ -224,52 +232,36 @@ public abstract class VideoPlayer implements VideoPlayerInstanceApi {
     // Rumble's live-hls-dvr playlists do not, so this is usually TIME_UNSET.
     long playerOffsetMs = exoPlayer.getCurrentLiveOffset();
     if (playerOffsetMs != C.TIME_UNSET) {
-      resetLiveAnchor();
       return Math.max(0, playerOffsetMs);
     }
 
-    // Without a date time the only live-edge marker is the window's default
-    // position, and that is a step function: it advances when the playlist
-    // refreshes and sits still in between, while the position advances
-    // continuously. Differencing them therefore sawtooths — it slides down
-    // ~1s/s and jumps back up by a refresh interval — which is what made the
-    // readout flicker.
+    // Without a date time, the gap between the window's default position (the
+    // live edge) and the current position is the only self-consistent measure
+    // available: both are relative to the start of the same window, so when
+    // that window slides or re-anchors the two move together and the gap is
+    // unaffected. That matters most across a pause, where the position can
+    // re-anchor by far more than the paused time -- 47s after a 20s pause on
+    // the stream measured -- which is why extrapolating from the change in
+    // position instead reported minutes of lag that were not real.
     //
-    // The raw difference is only truthful at the instant of a refresh, so
-    // take it as an anchor then and extrapolate from the device clock in
-    // between: elapsed real time minus playback progress since the anchor.
-    // While playback keeps pace those cancel and the figure holds steady;
-    // while it is paused, seeked back or stalled, only the clock advances and
-    // the figure grows by exactly the time lost. A refresh shows up as the
-    // raw value stepping up, which re-anchors and corrects any accumulated
-    // drift.
-    long positionMs = exoPlayer.getCurrentPosition();
-    long rawOffsetMs = window.getDefaultPositionMs() - positionMs;
-    long nowMs = SystemClock.elapsedRealtime();
-
-    boolean reanchor =
-        liveAnchorRealtimeMs == C.TIME_UNSET
-            || rawOffsetMs > lastRawLiveOffsetMs + LIVE_REANCHOR_THRESHOLD_MS;
-    if (reanchor) {
-      liveAnchorRealtimeMs = nowMs;
-      liveAnchorPositionMs = positionMs;
-      liveAnchorOffsetMs = rawOffsetMs;
+    // Its one defect is staleness. The default position is a step function,
+    // advancing only when the playlist refreshes, while the position advances
+    // continuously; so between refreshes the gap slides down about a second
+    // per second and then jumps back up. That is the sawtooth behind the
+    // flickering readout.
+    //
+    // The size of that error is known exactly -- it is the time since the last
+    // refresh. Adding it back cancels the slide while playback keeps pace with
+    // the broadcast, and leaves the figure growing correctly while playback is
+    // paused, seeked back or stalled.
+    long rawOffsetMs = window.getDefaultPositionMs() - exoPlayer.getCurrentPosition();
+    long stalenessMs = 0;
+    if (lastTimelineChangeRealtimeMs != C.TIME_UNSET) {
+      stalenessMs = SystemClock.elapsedRealtime() - lastTimelineChangeRealtimeMs;
+      stalenessMs = Math.max(0, Math.min(stalenessMs, MAX_TIMELINE_STALENESS_MS));
     }
-    lastRawLiveOffsetMs = rawOffsetMs;
 
-    long offsetMs =
-        liveAnchorOffsetMs
-            + (nowMs - liveAnchorRealtimeMs)
-            - (positionMs - liveAnchorPositionMs);
-    return Math.max(0, offsetMs);
-  }
-
-  /** Drops the extrapolation anchor so the next read starts a fresh one. */
-  private void resetLiveAnchor() {
-    liveAnchorRealtimeMs = C.TIME_UNSET;
-    liveAnchorPositionMs = C.TIME_UNSET;
-    liveAnchorOffsetMs = C.TIME_UNSET;
-    lastRawLiveOffsetMs = C.TIME_UNSET;
+    return Math.max(0, rawOffsetMs + stalenessMs);
   }
 
   @Override
