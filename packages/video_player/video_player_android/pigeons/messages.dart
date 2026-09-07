@@ -196,6 +196,15 @@ abstract class VideoPlayerInstanceApi {
   /// Returns the current buffer position, in milliseconds.
   int getBufferedPosition();
 
+  /// Returns how far playback is behind the live edge, in milliseconds, or
+  /// -1 when the stream is not live.
+  ///
+  /// Measured against the live window's own default position so that both
+  /// values shift together when the window slides; `duration` does not, and
+  /// differencing against it makes the result jump with every playlist
+  /// refresh.
+  int getLiveOffset();
+
   /// Returns the duration of the video, in milliseconds.
   ///
   /// Unlike the duration reported once at initialization, this is safe to

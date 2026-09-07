@@ -111,6 +111,17 @@ abstract class VideoPlayerPlatform extends PlatformInterface {
     throw UnimplementedError('getDuration() has not been implemented.');
   }
 
+  /// Returns how far playback is behind the live edge, or null when the
+  /// stream is not live.
+  ///
+  /// Both operands come from the same live window, so a window that slides
+  /// or re-anchors moves them together and the result stays steady. Deriving
+  /// this from `duration - position` does not hold: the two are not in the
+  /// same coordinate space on every platform.
+  Future<Duration?> getLiveOffset(int playerId) {
+    throw UnimplementedError('getLiveOffset() has not been implemented.');
+  }
+
   /// Returns a widget displaying the video with a given playerId.
   @Deprecated('Use buildViewWithOptions() instead.')
   Widget buildView(int playerId) {

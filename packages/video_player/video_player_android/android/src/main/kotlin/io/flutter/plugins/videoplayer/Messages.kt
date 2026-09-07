@@ -1122,6 +1122,16 @@ interface VideoPlayerInstanceApi {
   /** Returns the current buffer position, in milliseconds. */
   fun getBufferedPosition(): Long
   /**
+   * Returns how far playback is behind the live edge, in milliseconds, or
+   * -1 when the stream is not live.
+   *
+   * Measured against the live window's own default position so that both
+   * values shift together when the window slides; `duration` does not, and
+   * differencing against it makes the result jump with every playlist
+   * refresh.
+   */
+  fun getLiveOffset(): Long
+  /**
    * Returns the duration of the video, in milliseconds.
    *
    * Unlike the duration reported once at initialization, this is safe to
@@ -1275,6 +1285,21 @@ interface VideoPlayerInstanceApi {
           channel.setMessageHandler { _, reply ->
             val wrapped: List<Any?> = try {
               listOf(api.getBufferedPosition())
+            } catch (exception: Throwable) {
+              MessagesPigeonUtils.wrapError(exception)
+            }
+            reply.reply(wrapped)
+          }
+        } else {
+          channel.setMessageHandler(null)
+        }
+      }
+      run {
+        val channel = BasicMessageChannel<Any?>(binaryMessenger, "dev.flutter.pigeon.video_player_android.VideoPlayerInstanceApi.getLiveOffset$separatedMessageChannelSuffix", codec)
+        if (api != null) {
+          channel.setMessageHandler { _, reply ->
+            val wrapped: List<Any?> = try {
+              listOf(api.getLiveOffset())
             } catch (exception: Throwable) {
               MessagesPigeonUtils.wrapError(exception)
             }

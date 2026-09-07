@@ -1125,6 +1125,32 @@ class VideoPlayerInstanceApi {
     return pigeonVar_replyValue! as int;
   }
 
+  /// Returns how far playback is behind the live edge, in milliseconds, or
+  /// -1 when the stream is not live.
+  ///
+  /// Measured against the live window's own default position so that both
+  /// values shift together when the window slides; `duration` does not, and
+  /// differencing against it makes the result jump with every playlist
+  /// refresh.
+  Future<int> getLiveOffset() async {
+    final pigeonVar_channelName = 'dev.flutter.pigeon.video_player_android.VideoPlayerInstanceApi.getLiveOffset$pigeonVar_messageChannelSuffix';
+    final pigeonVar_channel = BasicMessageChannel<Object?>(
+      pigeonVar_channelName,
+      pigeonChannelCodec,
+      binaryMessenger: pigeonVar_binaryMessenger,
+    );
+    final Future<Object?> pigeonVar_sendFuture = pigeonVar_channel.send(null);
+    final pigeonVar_replyList = await pigeonVar_sendFuture as List<Object?>?;
+
+    final Object? pigeonVar_replyValue = _extractReplyValueOrThrow(
+        pigeonVar_replyList,
+        pigeonVar_channelName,
+        isNullValid: false,
+    )
+    ;
+    return pigeonVar_replyValue! as int;
+  }
+
   /// Returns the duration of the video, in milliseconds.
   ///
   /// Unlike the duration reported once at initialization, this is safe to

@@ -537,6 +537,28 @@ NS_INLINE CGFloat radiansToDegrees(CGFloat radians) {
   return @(self.duration);
 }
 
+- (nullable NSNumber *)liveOffset:(FlutterError *_Nullable *_Nonnull)error {
+  AVPlayerItem *currentItem = [_player currentItem];
+  if (currentItem == nil) {
+    return @(-1);
+  }
+
+  // Only a live asset has an indefinite duration; anything else is a fixed
+  // recording with no live edge to be behind.
+  if (!CMTIME_IS_INDEFINITE([[currentItem asset] duration])) {
+    return @(-1);
+  }
+
+  NSValue *seekableRange = [currentItem seekableTimeRanges].lastObject;
+  if (seekableRange == nil) {
+    return @(-1);
+  }
+
+  int64_t edgeMs = FVPCMTimeToMillis(CMTimeRangeGetEnd([seekableRange CMTimeRangeValue]));
+  int64_t offsetMs = edgeMs - FVPCMTimeToMillis([_player currentTime]);
+  return @(MAX(0, offsetMs));
+}
+
 - (void)seekTo:(NSInteger)position completion:(void (^)(FlutterError *_Nullable))completion {
   CMTime targetCMTime = CMTimeMake(position, 1000);
   CMTimeValue duration = _player.currentItem.asset.duration.value;

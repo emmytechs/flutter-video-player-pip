@@ -19,6 +19,7 @@ import androidx.media3.common.Format;
 import androidx.media3.common.MediaItem;
 import androidx.media3.common.PlaybackParameters;
 import androidx.media3.common.Player;
+import androidx.media3.common.Timeline;
 import androidx.media3.common.TrackGroup;
 import androidx.media3.common.TrackSelectionOverride;
 import androidx.media3.common.Tracks;
@@ -192,6 +193,29 @@ public abstract class VideoPlayer implements VideoPlayerInstanceApi {
   @Override
   public long getBufferedPosition() {
     return exoPlayer.getBufferedPosition();
+  }
+
+  @Override
+  public long getLiveOffset() {
+    Timeline timeline = exoPlayer.getCurrentTimeline();
+    if (timeline.isEmpty()) {
+      return -1;
+    }
+
+    Timeline.Window window =
+        timeline.getWindow(exoPlayer.getCurrentMediaItemIndex(), new Timeline.Window());
+    if (!window.isLive()) {
+      return -1;
+    }
+
+    // The window's default position is the live edge. Both it and the current
+    // position are relative to the start of the same window, so when that
+    // window slides or re-anchors they move together and this difference
+    // stays steady. Differencing against getDuration() does not hold: the
+    // window length does not shift with the window, so it jumps on every
+    // playlist refresh.
+    long offsetMs = window.getDefaultPositionMs() - exoPlayer.getCurrentPosition();
+    return Math.max(0, offsetMs);
   }
 
   @Override

@@ -203,6 +203,11 @@ class AndroidVideoPlayer extends VideoPlayerPlatform {
   }
 
   @override
+  Future<Duration?> getLiveOffset(int playerId) async {
+    return _playerWith(id: playerId).getLiveOffset();
+  }
+
+  @override
   Stream<VideoEvent> videoEventsFor(int playerId) {
     return _playerWith(id: playerId).videoEvents();
   }
@@ -390,6 +395,11 @@ class _PlayerInstance {
 
   Future<Duration> getDuration() async {
     return Duration(milliseconds: await _api.getDuration());
+  }
+
+  Future<Duration?> getLiveOffset() async {
+    final int offset = await _api.getLiveOffset();
+    return offset < 0 ? null : Duration(milliseconds: offset);
   }
 
   Stream<VideoEvent> videoEvents() {

@@ -851,6 +851,20 @@ class VideoPlayerController extends ValueNotifier<VideoPlayerValue> {
     return _videoPlayerPlatform.getPosition(_playerId);
   }
 
+  /// How far playback is behind the live edge, or null when the stream is not
+  /// live.
+  ///
+  /// Poll this rather than deriving it from [VideoPlayerValue.duration] and
+  /// [VideoPlayerValue.position]: those two are not in the same coordinate
+  /// space on every platform, so their difference jumps around on a live
+  /// window that slides.
+  Future<Duration?> get liveOffset async {
+    if (_isDisposedOrNotInitialized) {
+      return null;
+    }
+    return _videoPlayerPlatform.getLiveOffset(_playerId);
+  }
+
   /// Sets the video's current timestamp to be at [moment]. The next
   /// time the video is played it will resume from the given [moment].
   ///
