@@ -9,7 +9,7 @@ import static androidx.media3.common.Player.REPEAT_MODE_OFF;
 
 import android.graphics.Rect;
 import android.os.Build;
-import android.util.Log;
+import android.os.SystemClock;
 import android.util.Rational;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
@@ -43,6 +43,16 @@ public abstract class VideoPlayer implements VideoPlayerInstanceApi {
   @NonNull protected ExoPlayer exoPlayer;
   // TODO: Migrate to stable API, see https://github.com/flutter/flutter/issues/147039.
   @UnstableApi @Nullable protected DefaultTrackSelector trackSelector;
+
+  // Anchor used to extrapolate the live offset between playlist refreshes.
+  // See getLiveOffset().
+  private long liveAnchorRealtimeMs = C.TIME_UNSET;
+  private long liveAnchorPositionMs = C.TIME_UNSET;
+  private long liveAnchorOffsetMs = C.TIME_UNSET;
+  private long lastRawLiveOffsetMs = C.TIME_UNSET;
+
+  /** How far the raw live offset must step up to read as a playlist refresh. */
+  private static final long LIVE_REANCHOR_THRESHOLD_MS = 500;
 
   /** A closure-compatible signature since {@link java.util.function.Supplier} is API level 24. */
   public interface ExoPlayerProvider {
@@ -209,51 +219,57 @@ public abstract class VideoPlayer implements VideoPlayerInstanceApi {
       return -1;
     }
 
-    // ExoPlayer measures the live edge against the wall clock — the window's
-    // UNIX start time (from EXT-X-PROGRAM-DATE-TIME) plus real elapsed time —
-    // not against the manifest. So this figure holds steady while playback
-    // keeps pace with real time and grows by exactly the elapsed time while
-    // playback is paused or seeked back, matching what AVFoundation reports
-    // from seekableTimeRanges. It is also immune to playlist refreshes:
-    // windowStartTimeMs and the current position shift by the same amount
-    // when the window re-anchors, so their sum — the absolute playback time —
-    // does not move.
-    long liveOffsetMs = exoPlayer.getCurrentLiveOffset();
-    long currentPositionMs = exoPlayer.getCurrentPosition();
-    long fallbackOffsetMs = window.getDefaultPositionMs() - currentPositionMs;
-
-    // TEMP diagnostic (adnc live-offset investigation): compare the wall-clock
-    // API against the old manifest calc, and show whether the playlist carries
-    // a program date time (windowStartTimeMs == TIME_UNSET when it does not).
-    Log.i(
-        "ADNC_LIVE_OFFSET",
-        "getCurrentLiveOffset="
-            + liveOffsetMs
-            + " fallback(defaultPos-pos)="
-            + fallbackOffsetMs
-            + " defaultPositionMs="
-            + window.getDefaultPositionMs()
-            + " currentPositionMs="
-            + currentPositionMs
-            + " windowStartTimeMs="
-            + window.windowStartTimeMs
-            + " windowDurationMs="
-            + window.getDurationMs()
-            + " hasProgramDateTime="
-            + (window.windowStartTimeMs != C.TIME_UNSET)
-            + " path="
-            + (liveOffsetMs != C.TIME_UNSET ? "wallclock" : "fallback"));
-
-    if (liveOffsetMs != C.TIME_UNSET) {
-      return Math.max(0, liveOffsetMs);
+    // The player's own figure is wall-clock anchored and needs no help, but it
+    // is only available when the playlist carries an EXT-X-PROGRAM-DATE-TIME.
+    // Rumble's live-hls-dvr playlists do not, so this is usually TIME_UNSET.
+    long playerOffsetMs = exoPlayer.getCurrentLiveOffset();
+    if (playerOffsetMs != C.TIME_UNSET) {
+      resetLiveAnchor();
+      return Math.max(0, playerOffsetMs);
     }
 
-    // Fallback for a playlist with no program date time: the window's default
-    // position is the manifest's live edge. This only advances on playlist
-    // refresh while getCurrentPosition() advances continuously, so it
-    // sawtooths by up to a target-duration between refreshes — but without a
-    // wall-clock anchor it is the best figure available.
-    return Math.max(0, fallbackOffsetMs);
+    // Without a date time the only live-edge marker is the window's default
+    // position, and that is a step function: it advances when the playlist
+    // refreshes and sits still in between, while the position advances
+    // continuously. Differencing them therefore sawtooths — it slides down
+    // ~1s/s and jumps back up by a refresh interval — which is what made the
+    // readout flicker.
+    //
+    // The raw difference is only truthful at the instant of a refresh, so
+    // take it as an anchor then and extrapolate from the device clock in
+    // between: elapsed real time minus playback progress since the anchor.
+    // While playback keeps pace those cancel and the figure holds steady;
+    // while it is paused, seeked back or stalled, only the clock advances and
+    // the figure grows by exactly the time lost. A refresh shows up as the
+    // raw value stepping up, which re-anchors and corrects any accumulated
+    // drift.
+    long positionMs = exoPlayer.getCurrentPosition();
+    long rawOffsetMs = window.getDefaultPositionMs() - positionMs;
+    long nowMs = SystemClock.elapsedRealtime();
+
+    boolean reanchor =
+        liveAnchorRealtimeMs == C.TIME_UNSET
+            || rawOffsetMs > lastRawLiveOffsetMs + LIVE_REANCHOR_THRESHOLD_MS;
+    if (reanchor) {
+      liveAnchorRealtimeMs = nowMs;
+      liveAnchorPositionMs = positionMs;
+      liveAnchorOffsetMs = rawOffsetMs;
+    }
+    lastRawLiveOffsetMs = rawOffsetMs;
+
+    long offsetMs =
+        liveAnchorOffsetMs
+            + (nowMs - liveAnchorRealtimeMs)
+            - (positionMs - liveAnchorPositionMs);
+    return Math.max(0, offsetMs);
+  }
+
+  /** Drops the extrapolation anchor so the next read starts a fresh one. */
+  private void resetLiveAnchor() {
+    liveAnchorRealtimeMs = C.TIME_UNSET;
+    liveAnchorPositionMs = C.TIME_UNSET;
+    liveAnchorOffsetMs = C.TIME_UNSET;
+    lastRawLiveOffsetMs = C.TIME_UNSET;
   }
 
   @Override
