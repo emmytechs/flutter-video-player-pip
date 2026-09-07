@@ -1065,8 +1065,16 @@ class VideoPlayerController extends ValueNotifier<VideoPlayerValue> {
     if (_isDisposed) {
       return;
     }
-    final bool isLive =
-        await _videoPlayerPlatform.getLiveOffset(_playerId) != null;
+    // A platform that does not implement this throws rather than answering.
+    // Treat that as "not live", which leaves every gate on [isLive] taking the
+    // ordinary fixed-recording path, rather than letting it break the position
+    // poll this runs inside.
+    bool isLive;
+    try {
+      isLive = await _videoPlayerPlatform.getLiveOffset(_playerId) != null;
+    } on UnimplementedError {
+      isLive = false;
+    }
     if (_isDisposed) {
       return;
     }
