@@ -175,6 +175,7 @@ class VideoPlayerValue {
     this.errorDescription,
     this.isCompleted = false,
     this.isLive = false,
+    this.liveOffset = Duration.zero,
   });
 
   /// Returns an instance for a video that hasn't been loaded.
@@ -244,6 +245,16 @@ class VideoPlayerValue {
   /// Does not update if video is looping.
   final bool isCompleted;
 
+  /// How far behind the live edge playback is sitting, as the player itself
+  /// measures it. Zero, and meaningless, unless [isLive].
+  ///
+  /// Read straight from the live window, so it steps around by a second or
+  /// two as the playlist refreshes — too restless to put on screen unsmoothed,
+  /// but the authority on where the live edge actually is. `position +
+  /// liveOffset` is the edge in the player's own coordinates, which is the
+  /// only reliable target for a seek back to live.
+  final Duration liveOffset;
+
   /// True while the player is on an ongoing broadcast rather than a fixed
   /// recording.
   ///
@@ -302,6 +313,7 @@ class VideoPlayerValue {
     String? errorDescription = _defaultErrorDescription,
     bool? isCompleted,
     bool? isLive,
+    Duration? liveOffset,
   }) {
     return VideoPlayerValue(
       duration: duration ?? this.duration,
@@ -324,6 +336,7 @@ class VideoPlayerValue {
           : this.errorDescription,
       isCompleted: isCompleted ?? this.isCompleted,
       isLive: isLive ?? this.isLive,
+      liveOffset: liveOffset ?? this.liveOffset,
     );
   }
 
@@ -345,7 +358,8 @@ class VideoPlayerValue {
         'playbackSpeed: $playbackSpeed, '
         'errorDescription: $errorDescription, '
         'isCompleted: $isCompleted, '
-        'isLive: $isLive),';
+        'isLive: $isLive, '
+        'liveOffset: $liveOffset),';
   }
 
   @override
@@ -369,7 +383,8 @@ class VideoPlayerValue {
           rotationCorrection == other.rotationCorrection &&
           isInitialized == other.isInitialized &&
           isCompleted == other.isCompleted &&
-          isLive == other.isLive;
+          isLive == other.isLive &&
+          liveOffset == other.liveOffset;
 
   @override
   int get hashCode => Object.hash(
@@ -390,6 +405,7 @@ class VideoPlayerValue {
     isInitialized,
     isCompleted,
     isLive,
+    liveOffset,
   );
 }
 
@@ -1069,12 +1085,17 @@ class VideoPlayerController extends ValueNotifier<VideoPlayerValue> {
     // Treat that as "not live", which leaves every gate on [isLive] taking the
     // ordinary fixed-recording path, rather than letting it break the position
     // poll this runs inside.
-    bool isLive;
+    Duration? liveOffset;
     try {
-      isLive = await _videoPlayerPlatform.getLiveOffset(_playerId) != null;
+      liveOffset = await _videoPlayerPlatform.getLiveOffset(_playerId);
     } on UnimplementedError {
-      isLive = false;
+      liveOffset = null;
     }
+    // Stashed rather than written straight to `value`: `_updatePosition` runs
+    // immediately after this on the same tick, so letting it carry the figure
+    // keeps this to one notification per tick instead of two.
+    _lastLiveOffset = liveOffset ?? Duration.zero;
+    final bool isLive = liveOffset != null;
     if (_isDisposed) {
       return;
     }
@@ -1088,6 +1109,9 @@ class VideoPlayerController extends ValueNotifier<VideoPlayerValue> {
       isLive: isLive,
     );
   }
+
+  /// Latest live offset from the platform, published by [_updatePosition].
+  Duration _lastLiveOffset = Duration.zero;
 
   void _updatePosition(Duration position) {
     // The underlying native implementation on some platforms sometimes reports
@@ -1107,6 +1131,7 @@ class VideoPlayerController extends ValueNotifier<VideoPlayerValue> {
       position: position,
       caption: _getCaptionAt(position),
       isCompleted: !value.isLive && position == value.duration,
+      liveOffset: _lastLiveOffset,
     );
   }
 
