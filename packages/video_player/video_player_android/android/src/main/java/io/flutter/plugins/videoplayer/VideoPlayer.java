@@ -9,7 +9,6 @@ import static androidx.media3.common.Player.REPEAT_MODE_OFF;
 
 import android.graphics.Rect;
 import android.os.Build;
-import android.os.SystemClock;
 import android.util.Rational;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
@@ -43,16 +42,6 @@ public abstract class VideoPlayer implements VideoPlayerInstanceApi {
   @NonNull protected ExoPlayer exoPlayer;
   // TODO: Migrate to stable API, see https://github.com/flutter/flutter/issues/147039.
   @UnstableApi @Nullable protected DefaultTrackSelector trackSelector;
-
-  /** When the live window was last refreshed. See {@link #getLiveOffset()}. */
-  private volatile long lastTimelineChangeRealtimeMs = C.TIME_UNSET;
-
-  /**
-   * Ceiling on the staleness correction in {@link #getLiveOffset()}, so a
-   * timeline that stops refreshing entirely reports a stuck figure rather than
-   * one that climbs forever.
-   */
-  private static final long MAX_TIMELINE_STALENESS_MS = 60_000;
 
   /** A closure-compatible signature since {@link java.util.function.Supplier} is API level 24. */
   public interface ExoPlayerProvider {
@@ -144,14 +133,6 @@ public abstract class VideoPlayer implements VideoPlayerInstanceApi {
               pipDelegate.onPlayingStateChanged(VideoPlayer.this, isPlaying);
             }
           }
-
-          @Override
-          public void onTimelineChanged(@NonNull Timeline timeline, int reason) {
-            // Marks the moment the live window was last refreshed, which is
-            // the only moment its default position is up to date. See
-            // getLiveOffset().
-            lastTimelineChangeRealtimeMs = SystemClock.elapsedRealtime();
-          }
         });
     setAudioAttributes(exoPlayer, options.mixWithOthers);
   }
@@ -227,41 +208,17 @@ public abstract class VideoPlayer implements VideoPlayerInstanceApi {
       return -1;
     }
 
-    // The player's own figure is wall-clock anchored and needs no help, but it
-    // is only available when the playlist carries an EXT-X-PROGRAM-DATE-TIME.
-    // Rumble's live-hls-dvr playlists do not, so this is usually TIME_UNSET.
-    long playerOffsetMs = exoPlayer.getCurrentLiveOffset();
-    if (playerOffsetMs != C.TIME_UNSET) {
-      return Math.max(0, playerOffsetMs);
-    }
-
-    // Without a date time, the gap between the window's default position (the
-    // live edge) and the current position is the only self-consistent measure
-    // available: both are relative to the start of the same window, so when
-    // that window slides or re-anchors the two move together and the gap is
-    // unaffected. That matters most across a pause, where the position can
-    // re-anchor by far more than the paused time -- 47s after a 20s pause on
-    // the stream measured -- which is why extrapolating from the change in
-    // position instead reported minutes of lag that were not real.
+    // How far the current position sits behind the window's default position,
+    // which is the live edge. Both are relative to the start of the same
+    // window, so a window that slides or re-anchors moves them together.
     //
-    // Its one defect is staleness. The default position is a step function,
-    // advancing only when the playlist refreshes, while the position advances
-    // continuously; so between refreshes the gap slides down about a second
-    // per second and then jumps back up. That is the sawtooth behind the
-    // flickering readout.
-    //
-    // The size of that error is known exactly -- it is the time since the last
-    // refresh. Adding it back cancels the slide while playback keeps pace with
-    // the broadcast, and leaves the figure growing correctly while playback is
-    // paused, seeked back or stalled.
-    long rawOffsetMs = window.getDefaultPositionMs() - exoPlayer.getCurrentPosition();
-    long stalenessMs = 0;
-    if (lastTimelineChangeRealtimeMs != C.TIME_UNSET) {
-      stalenessMs = SystemClock.elapsedRealtime() - lastTimelineChangeRealtimeMs;
-      stalenessMs = Math.max(0, Math.min(stalenessMs, MAX_TIMELINE_STALENESS_MS));
-    }
-
-    return Math.max(0, rawOffsetMs + stalenessMs);
+    // Only a rough figure: the default position advances in steps as the
+    // playlist refreshes while the position advances continuously, so this
+    // drifts by up to a refresh interval in between. Callers use it to tell a
+    // broadcast from a recording and to seed an initial value, not as a live
+    // readout to put on screen.
+    long offsetMs = window.getDefaultPositionMs() - exoPlayer.getCurrentPosition();
+    return Math.max(0, offsetMs);
   }
 
   @Override
