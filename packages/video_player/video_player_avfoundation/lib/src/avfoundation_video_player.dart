@@ -170,6 +170,11 @@ class AVFoundationVideoPlayer extends VideoPlayerPlatform {
   }
 
   @override
+  Future<Duration> getDuration(int playerId) async {
+    return _playerWith(id: playerId).getDuration();
+  }
+
+  @override
   Stream<VideoEvent> videoEventsFor(int playerId) {
     return _playerWith(id: playerId).videoEvents;
   }
@@ -315,6 +320,10 @@ class _PlayerInstance {
 
   Future<Duration> getPosition() async {
     return Duration(milliseconds: await _api.getPosition());
+  }
+
+  Future<Duration> getDuration() async {
+    return Duration(milliseconds: await _api.getDuration());
   }
 
   Future<List<MediaSelectionAudioTrackData>> getAudioTracks() =>

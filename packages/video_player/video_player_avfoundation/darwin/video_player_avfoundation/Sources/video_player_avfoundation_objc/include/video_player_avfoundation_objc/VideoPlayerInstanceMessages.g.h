@@ -56,6 +56,8 @@ NSObject<FlutterMessageCodec> *FVPGetVideoPlayerInstanceMessagesCodec(void);
 - (void)playWithError:(FlutterError *_Nullable *_Nonnull)error;
 /// @return `nil` only when `error != nil`.
 - (nullable NSNumber *)position:(FlutterError *_Nullable *_Nonnull)error;
+/// @return `nil` only when `error != nil`.
+- (nullable NSNumber *)duration:(FlutterError *_Nullable *_Nonnull)error;
 - (void)seekTo:(NSInteger)position completion:(void (^)(FlutterError *_Nullable))completion;
 - (void)pauseWithError:(FlutterError *_Nullable *_Nonnull)error;
 - (void)disposeWithError:(FlutterError *_Nullable *_Nonnull)error;

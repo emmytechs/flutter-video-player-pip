@@ -64,6 +64,8 @@ abstract class VideoPlayerInstanceApi {
   void play();
   @ObjCSelector('position')
   int getPosition();
+  @ObjCSelector('duration')
+  int getDuration();
   @async
   @ObjCSelector('seekTo:')
   void seekTo(int position);

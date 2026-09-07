@@ -195,6 +195,14 @@ public abstract class VideoPlayer implements VideoPlayerInstanceApi {
   }
 
   @Override
+  public long getDuration() {
+    long duration = exoPlayer.getDuration();
+    // The timeline is unknown until the media has been prepared, and for a
+    // live stream this keeps growing as the window does.
+    return duration == C.TIME_UNSET ? 0 : duration;
+  }
+
+  @Override
   public void seekTo(long position) {
     exoPlayer.seekTo(position);
   }

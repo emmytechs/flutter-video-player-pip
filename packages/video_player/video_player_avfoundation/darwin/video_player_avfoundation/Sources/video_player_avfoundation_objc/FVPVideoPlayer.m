@@ -533,6 +533,10 @@ NS_INLINE CGFloat radiansToDegrees(CGFloat radians) {
   return @(FVPCMTimeToMillis([_player currentTime]));
 }
 
+- (nullable NSNumber *)duration:(FlutterError *_Nullable *_Nonnull)error {
+  return @(self.duration);
+}
+
 - (void)seekTo:(NSInteger)position completion:(void (^)(FlutterError *_Nullable))completion {
   CMTime targetCMTime = CMTimeMake(position, 1000);
   CMTimeValue duration = _player.currentItem.asset.duration.value;
@@ -632,10 +636,31 @@ NS_INLINE CGFloat radiansToDegrees(CGFloat radians) {
 #pragma mark - Private
 
 - (int64_t)duration {
+  AVPlayerItem *currentItem = [_player currentItem];
+  if (currentItem == nil) {
+    return 0;
+  }
+
   // Note: https://openradar.appspot.com/radar?id=4968600712511488
   // `[AVPlayerItem duration]` can be `kCMTimeIndefinite`,
   // use `[[AVPlayerItem asset] duration]` instead.
-  return FVPCMTimeToMillis([[[_player currentItem] asset] duration]);
+  CMTime assetDuration = [[currentItem asset] duration];
+
+  // A live stream has no fixed length, so its asset duration is indefinite.
+  // The seekable range is the DVR window the viewer can actually move around
+  // in, and its end is the live edge — which keeps advancing for as long as
+  // the broadcast runs. Reporting the indefinite sentinel here instead would
+  // leave callers with a negative duration they can neither seek within nor
+  // display.
+  if (CMTIME_IS_INDEFINITE(assetDuration)) {
+    NSValue *seekableRange = [currentItem seekableTimeRanges].lastObject;
+    if (seekableRange == nil) {
+      return 0;
+    }
+    return FVPCMTimeToMillis(CMTimeRangeGetEnd([seekableRange CMTimeRangeValue]));
+  }
+
+  return FVPCMTimeToMillis(assetDuration);
 }
 
 #pragma mark - PiP instance API (Pigeon)

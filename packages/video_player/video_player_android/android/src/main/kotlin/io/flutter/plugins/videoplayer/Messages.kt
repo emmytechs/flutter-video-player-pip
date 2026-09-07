@@ -1121,6 +1121,13 @@ interface VideoPlayerInstanceApi {
   fun getCurrentPosition(): Long
   /** Returns the current buffer position, in milliseconds. */
   fun getBufferedPosition(): Long
+  /**
+   * Returns the duration of the video, in milliseconds.
+   *
+   * Unlike the duration reported once at initialization, this is safe to
+   * poll: a live stream's duration grows for as long as the broadcast runs.
+   */
+  fun getDuration(): Long
   /** Gets the available audio tracks for the video. */
   fun getAudioTracks(): NativeAudioTrackData
   /** Selects which audio track is chosen for playback from its [groupIndex] and [trackIndex] */
@@ -1268,6 +1275,21 @@ interface VideoPlayerInstanceApi {
           channel.setMessageHandler { _, reply ->
             val wrapped: List<Any?> = try {
               listOf(api.getBufferedPosition())
+            } catch (exception: Throwable) {
+              MessagesPigeonUtils.wrapError(exception)
+            }
+            reply.reply(wrapped)
+          }
+        } else {
+          channel.setMessageHandler(null)
+        }
+      }
+      run {
+        val channel = BasicMessageChannel<Any?>(binaryMessenger, "dev.flutter.pigeon.video_player_android.VideoPlayerInstanceApi.getDuration$separatedMessageChannelSuffix", codec)
+        if (api != null) {
+          channel.setMessageHandler { _, reply ->
+            val wrapped: List<Any?> = try {
+              listOf(api.getDuration())
             } catch (exception: Throwable) {
               MessagesPigeonUtils.wrapError(exception)
             }

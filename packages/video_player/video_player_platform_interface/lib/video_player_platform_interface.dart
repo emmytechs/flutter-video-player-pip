@@ -100,6 +100,17 @@ abstract class VideoPlayerPlatform extends PlatformInterface {
     throw UnimplementedError('getPosition() has not been implemented.');
   }
 
+  /// Returns the duration of the video, or [Duration.zero] when it is not
+  /// known.
+  ///
+  /// Unlike the duration carried by [VideoEventType.initialized], which is
+  /// reported once, this is meant to be polled. A live stream's duration
+  /// grows for as long as the broadcast runs, and on some platforms it is not
+  /// known at all until playback has started.
+  Future<Duration> getDuration(int playerId) {
+    throw UnimplementedError('getDuration() has not been implemented.');
+  }
+
   /// Returns a widget displaying the video with a given playerId.
   @Deprecated('Use buildViewWithOptions() instead.')
   Widget buildView(int playerId) {

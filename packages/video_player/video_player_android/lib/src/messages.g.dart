@@ -1125,6 +1125,29 @@ class VideoPlayerInstanceApi {
     return pigeonVar_replyValue! as int;
   }
 
+  /// Returns the duration of the video, in milliseconds.
+  ///
+  /// Unlike the duration reported once at initialization, this is safe to
+  /// poll: a live stream's duration grows for as long as the broadcast runs.
+  Future<int> getDuration() async {
+    final pigeonVar_channelName = 'dev.flutter.pigeon.video_player_android.VideoPlayerInstanceApi.getDuration$pigeonVar_messageChannelSuffix';
+    final pigeonVar_channel = BasicMessageChannel<Object?>(
+      pigeonVar_channelName,
+      pigeonChannelCodec,
+      binaryMessenger: pigeonVar_binaryMessenger,
+    );
+    final Future<Object?> pigeonVar_sendFuture = pigeonVar_channel.send(null);
+    final pigeonVar_replyList = await pigeonVar_sendFuture as List<Object?>?;
+
+    final Object? pigeonVar_replyValue = _extractReplyValueOrThrow(
+        pigeonVar_replyList,
+        pigeonVar_channelName,
+        isNullValid: false,
+    )
+    ;
+    return pigeonVar_replyValue! as int;
+  }
+
   /// Gets the available audio tracks for the video.
   Future<NativeAudioTrackData> getAudioTracks() async {
     final pigeonVar_channelName = 'dev.flutter.pigeon.video_player_android.VideoPlayerInstanceApi.getAudioTracks$pigeonVar_messageChannelSuffix';

@@ -196,6 +196,12 @@ abstract class VideoPlayerInstanceApi {
   /// Returns the current buffer position, in milliseconds.
   int getBufferedPosition();
 
+  /// Returns the duration of the video, in milliseconds.
+  ///
+  /// Unlike the duration reported once at initialization, this is safe to
+  /// poll: a live stream's duration grows for as long as the broadcast runs.
+  int getDuration();
+
   /// Gets the available audio tracks for the video.
   NativeAudioTrackData getAudioTracks();
 

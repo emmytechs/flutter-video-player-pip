@@ -807,6 +807,7 @@ class VideoPlayerController extends ValueNotifier<VideoPlayerValue> {
         if (newPosition == null) {
           return;
         }
+        await _refreshDuration();
         _updatePosition(newPosition);
       });
 
@@ -1006,6 +1007,27 @@ class VideoPlayerController extends ValueNotifier<VideoPlayerValue> {
       _sortedCaptions = null;
       value = value.copyWith(caption: Caption.none);
     }
+  }
+
+  /// Refreshes [VideoPlayerValue.duration] from the platform.
+  ///
+  /// The duration delivered with the initialization event is a snapshot, but
+  /// it is not always the whole story. A live stream's duration grows for as
+  /// long as the broadcast runs, and on AVFoundation a live asset reports no
+  /// duration at all until its first seekable range arrives. Both [seekTo]
+  /// and [_updatePosition] clamp against this value, so leaving it stale pins
+  /// the reported position and silently discards seeks past it.
+  Future<void> _refreshDuration() async {
+    if (_isDisposed) {
+      return;
+    }
+    final Duration duration = await _videoPlayerPlatform.getDuration(_playerId);
+    if (_isDisposed ||
+        duration <= Duration.zero ||
+        duration == value.duration) {
+      return;
+    }
+    value = value.copyWith(duration: duration);
   }
 
   void _updatePosition(Duration position) {
